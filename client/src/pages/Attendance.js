@@ -12,8 +12,8 @@ const Attendance = () => {
           <ClockCircleOutlined style={{ fontSize: '48px', color: '#1890ff', marginBottom: '16px' }} />
           <Title level={3}>Посещения</Title>
           <Alert
-            message="Функция в разработке"
-            description="Страница просмотра посещений будет доступна в следующей версии"
+            message="Очко в разработке"
+            description="Даня гей и в данный момент его очко разрабатывается чтобы вы могли пользоваться сайтом"
             type="info"
             showIcon
           />
