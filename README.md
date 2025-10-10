@@ -62,6 +62,26 @@ cd ..
 ```
 
 ### 3. Настройка базы данных
+
+#### Автоматическое создание (рекомендуется):
+
+**Для Linux/macOS:**
+```bash
+chmod +x scripts/setup-db.sh
+./scripts/setup-db.sh
+```
+
+**Для Windows:**
+```powershell
+.\scripts\setup-db.ps1
+```
+
+**Универсальный способ (Node.js):**
+```bash
+npm run create-db
+```
+
+#### Ручное создание:
 ```sql
 -- Создание базы данных
 CREATE DATABASE germes_lk;
@@ -102,7 +122,13 @@ BACKUP_SCHEDULE=0 2 * * *
 BACKUP_RETENTION_DAYS=30
 ```
 
-### 5. Запуск приложения
+### 5. Инициализация базы данных
+```bash
+# Создание БД с тестовыми данными
+npm run init-db
+```
+
+### 6. Запуск приложения
 
 #### Режим разработки:
 ```bash
@@ -126,6 +152,41 @@ npm start
 Приложение будет доступно по адресу:
 - Frontend: http://localhost:3000
 - Backend API: http://localhost:5000
+
+## Доступные скрипты
+
+### Управление базой данных:
+```bash
+# Создание БД (интерактивно)
+npm run create-db
+
+# Инициализация с тестовыми данными
+npm run init-db
+
+# Создание резервной копии
+npm run backup:create
+
+# Очистка старых резервных копий
+npm run backup:cleanup
+
+# Просмотр информации о резервных копиях
+npm run backup:info
+
+# Запуск автоматического резервного копирования
+npm run backup:schedule
+```
+
+### Разработка:
+```bash
+# Запуск в режиме разработки
+npm run dev
+
+# Сборка frontend
+npm run build
+
+# Установка зависимостей frontend
+npm run install-client
+```
 
 ## Настройка автоматического резервного копирования
 
