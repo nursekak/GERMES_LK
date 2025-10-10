@@ -26,6 +26,7 @@ const User = sequelize.define('User', {
   firstName: {
     type: DataTypes.STRING,
     allowNull: false,
+    field: 'first_name',
     validate: {
       len: [1, 50]
     }
@@ -33,21 +34,27 @@ const User = sequelize.define('User', {
   lastName: {
     type: DataTypes.STRING,
     allowNull: false,
+    field: 'last_name',
     validate: {
       len: [1, 50]
     }
   },
   role: {
-    type: DataTypes.ENUM('manager', 'employee'),
+    type: DataTypes.STRING,
     allowNull: false,
-    defaultValue: 'employee'
+    defaultValue: 'employee',
+    validate: {
+      isIn: [['manager', 'employee']]
+    }
   },
   isActive: {
     type: DataTypes.BOOLEAN,
-    defaultValue: true
+    defaultValue: true,
+    field: 'is_active'
   },
   lastLogin: {
-    type: DataTypes.DATE
+    type: DataTypes.DATE,
+    field: 'last_login'
   }
 }, {
   tableName: 'users',

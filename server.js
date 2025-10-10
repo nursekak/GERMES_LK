@@ -41,8 +41,10 @@ app.use(helmet({
 app.use(compression());
 app.use(limiter);
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production' ? false : ['http://localhost:3000'],
-  credentials: true
+  origin: process.env.NODE_ENV === 'production' ? false : ['http://localhost:3000', 'http://localhost:3001'],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
 app.use(express.json({ limit: '10mb' }));
@@ -98,7 +100,7 @@ app.use('*', (req, res) => {
 db.authenticate()
   .then(() => {
     console.log('Подключение к базе данных установлено успешно.');
-    return db.sync({ alter: process.env.NODE_ENV === 'development' });
+    return db.sync({ force: false });
   })
   .then(() => {
     app.listen(PORT, () => {

@@ -204,6 +204,35 @@ NODE_ENV=development
 - Убедитесь, что пользователь PostgreSQL имеет права на создание БД
 - Для Windows: запустите PowerShell от имени администратора
 
+### Ошибка collation (несоответствие версии правила сортировки)
+Эта ошибка возникает при несоответствии collation между template0 и template1 в PostgreSQL.
+
+**Быстрое решение:**
+```bash
+npm run quick-fix
+```
+
+**Подробная диагностика и исправление:**
+```bash
+npm run fix-collation
+```
+
+**Ручное исправление:**
+```sql
+-- Подключитесь к PostgreSQL и выполните:
+DROP DATABASE IF EXISTS germes_lk;
+CREATE DATABASE germes_lk WITH TEMPLATE = template0;
+```
+
+**Причины проблемы:**
+- Обновление PostgreSQL
+- Разные версии collation в template0 и template1
+- Неправильная настройка локали при установке PostgreSQL
+
+**Профилактика:**
+- Всегда используйте template0 при создании новых БД
+- Проверяйте совместимость collation перед созданием БД
+
 ## Дополнительные команды
 
 ### Просмотр информации о БД

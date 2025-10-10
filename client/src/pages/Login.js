@@ -1,22 +1,63 @@
 import React, { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { Button, Form, Input, Card, Typography, Space, Divider } from 'antd';
-import { UserOutlined, LockOutlined, EyeInvisibleOutlined, EyeTwoTone } from '@ant-design/icons';
-
-const { Title, Text } = Typography;
 
 const Login = () => {
   const [loading, setLoading] = useState(false);
+  const [formData, setFormData] = useState({
+    email: '',
+    password: ''
+  });
+  const [errors, setErrors] = useState({});
   const { login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
   const from = location.state?.from?.pathname || '/dashboard';
 
-  const onFinish = async (values) => {
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({
+      ...prev,
+      [name]: value
+    }));
+    // Очищаем ошибку при изменении поля
+    if (errors[name]) {
+      setErrors(prev => ({
+        ...prev,
+        [name]: ''
+      }));
+    }
+  };
+
+  const validateForm = () => {
+    const newErrors = {};
+    
+    if (!formData.email) {
+      newErrors.email = 'Email обязателен';
+    } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
+      newErrors.email = 'Некорректный email';
+    }
+    
+    if (!formData.password) {
+      newErrors.password = 'Пароль обязателен';
+    } else if (formData.password.length < 6) {
+      newErrors.password = 'Пароль должен содержать минимум 6 символов';
+    }
+    
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    
+    if (!validateForm()) {
+      return;
+    }
+    
     setLoading(true);
-    const result = await login(values.email, values.password);
+    const result = await login(formData.email, formData.password);
     setLoading(false);
     
     if (result.success) {
@@ -33,80 +74,110 @@ const Login = () => {
       background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
       padding: '20px'
     }}>
-      <Card
-        style={{
-          width: '100%',
-          maxWidth: 400,
-          boxShadow: '0 8px 32px rgba(0,0,0,0.1)',
-          borderRadius: '12px'
-        }}
-      >
+      <div style={{
+        width: '100%',
+        maxWidth: '400px',
+        background: 'white',
+        borderRadius: '12px',
+        boxShadow: '0 8px 32px rgba(0,0,0,0.1)',
+        padding: '40px'
+      }}>
         <div style={{ textAlign: 'center', marginBottom: '32px' }}>
-          <Title level={2} style={{ color: '#1890ff', marginBottom: '8px' }}>
+          <h2 style={{ color: '#1890ff', marginBottom: '8px', fontSize: '24px' }}>
             ГЕРМЕС
-          </Title>
-          <Text type="secondary">Вход в личный кабинет</Text>
+          </h2>
+          <p style={{ color: '#666', margin: 0 }}>Вход в личный кабинет</p>
         </div>
 
-        <Form
-          name="login"
-          onFinish={onFinish}
-          layout="vertical"
-          size="large"
-        >
-          <Form.Item
-            name="email"
-            label="Email"
-            rules={[
-              { required: true, message: 'Пожалуйста, введите email' },
-              { type: 'email', message: 'Введите корректный email' }
-            ]}
-          >
-            <Input
-              prefix={<UserOutlined />}
+        <form onSubmit={handleSubmit}>
+          <div style={{ marginBottom: '20px' }}>
+            <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#333' }}>
+              Email
+            </label>
+            <input
+              type="email"
+              name="email"
+              value={formData.email}
+              onChange={handleChange}
+              style={{
+                width: '100%',
+                padding: '12px',
+                border: `1px solid ${errors.email ? '#ff4d4f' : '#d9d9d9'}`,
+                borderRadius: '6px',
+                fontSize: '14px',
+                outline: 'none',
+                transition: 'border-color 0.3s'
+              }}
               placeholder="Введите email"
             />
-          </Form.Item>
+            {errors.email && (
+              <div style={{ color: '#ff4d4f', fontSize: '12px', marginTop: '4px' }}>
+                {errors.email}
+              </div>
+            )}
+          </div>
 
-          <Form.Item
-            name="password"
-            label="Пароль"
-            rules={[
-              { required: true, message: 'Пожалуйста, введите пароль' },
-              { min: 6, message: 'Пароль должен содержать минимум 6 символов' }
-            ]}
-          >
-            <Input.Password
-              prefix={<LockOutlined />}
+          <div style={{ marginBottom: '24px' }}>
+            <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#333' }}>
+              Пароль
+            </label>
+            <input
+              type="password"
+              name="password"
+              value={formData.password}
+              onChange={handleChange}
+              style={{
+                width: '100%',
+                padding: '12px',
+                border: `1px solid ${errors.password ? '#ff4d4f' : '#d9d9d9'}`,
+                borderRadius: '6px',
+                fontSize: '14px',
+                outline: 'none',
+                transition: 'border-color 0.3s'
+              }}
               placeholder="Введите пароль"
-              iconRender={(visible) => (visible ? <EyeTwoTone /> : <EyeInvisibleOutlined />)}
             />
-          </Form.Item>
+            {errors.password && (
+              <div style={{ color: '#ff4d4f', fontSize: '12px', marginTop: '4px' }}>
+                {errors.password}
+              </div>
+            )}
+          </div>
 
-          <Form.Item>
-            <Button
-              type="primary"
-              htmlType="submit"
-              loading={loading}
-              block
-              style={{ height: '48px', fontSize: '16px' }}
-            >
-              Войти
-            </Button>
-          </Form.Item>
-        </Form>
+          <button
+            type="submit"
+            disabled={loading}
+            style={{
+              width: '100%',
+              padding: '12px',
+              background: loading ? '#ccc' : '#1890ff',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
+              fontSize: '16px',
+              fontWeight: '500',
+              cursor: loading ? 'not-allowed' : 'pointer',
+              transition: 'background-color 0.3s'
+            }}
+          >
+            {loading ? 'Вход...' : 'Войти'}
+          </button>
+        </form>
 
-        <Divider />
-
-        <div style={{ textAlign: 'center' }}>
-          <Text type="secondary">
+        <div style={{ 
+          textAlign: 'center', 
+          marginTop: '24px', 
+          paddingTop: '24px', 
+          borderTop: '1px solid #f0f0f0' 
+        }}>
+          <p style={{ color: '#666', margin: 0 }}>
             Нет аккаунта?{' '}
-            <Link to="/register" style={{ color: '#1890ff' }}>
+            <Link to="/register" style={{ color: '#1890ff', textDecoration: 'none' }}>
               Зарегистрироваться
             </Link>
-          </Text>
+          </p>
         </div>
-      </Card>
+      </div>
     </div>
   );
 };

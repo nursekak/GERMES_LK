@@ -102,7 +102,7 @@ router.post('/check-out', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Ошибка регистрации ухода:', error);
     res.status(500).json({ message: 'Ошибка при регистрации ухода' });
-  });
+  }
 });
 
 // Получение статистики посещений пользователя

@@ -10,6 +10,7 @@ const Report = sequelize.define('Report', {
   userId: {
     type: DataTypes.UUID,
     allowNull: false,
+    field: 'user_id',
     references: {
       model: 'users',
       key: 'id'
@@ -28,36 +29,34 @@ const Report = sequelize.define('Report', {
   },
   reportDate: {
     type: DataTypes.DATEONLY,
-    allowNull: false
+    allowNull: false,
+    field: 'report_date'
   },
   status: {
-    type: DataTypes.ENUM('draft', 'submitted', 'approved', 'rejected'),
+    type: DataTypes.STRING,
     allowNull: false,
-    defaultValue: 'draft'
+    defaultValue: 'draft',
+    validate: {
+      isIn: [['draft', 'submitted', 'approved', 'rejected']]
+    }
   },
   approvedBy: {
     type: DataTypes.UUID,
+    field: 'approved_by',
     references: {
       model: 'users',
       key: 'id'
     }
   },
   approvedAt: {
-    type: DataTypes.DATE
+    type: DataTypes.DATE,
+    field: 'approved_at'
   },
   comments: {
     type: DataTypes.TEXT
   }
 }, {
-  tableName: 'reports',
-  indexes: [
-    {
-      fields: ['userId', 'reportDate']
-    },
-    {
-      fields: ['status']
-    }
-  ]
+  tableName: 'reports'
 });
 
 module.exports = Report;

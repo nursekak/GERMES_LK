@@ -21,11 +21,13 @@ const Workplace = sequelize.define('Workplace', {
   qrCode: {
     type: DataTypes.STRING,
     allowNull: false,
-    unique: true
+    unique: true,
+    field: 'qr_code'
   },
   isActive: {
     type: DataTypes.BOOLEAN,
-    defaultValue: true
+    defaultValue: true,
+    field: 'is_active'
   },
   description: {
     type: DataTypes.TEXT

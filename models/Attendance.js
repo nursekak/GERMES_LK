@@ -10,6 +10,7 @@ const Attendance = sequelize.define('Attendance', {
   userId: {
     type: DataTypes.UUID,
     allowNull: false,
+    field: 'user_id',
     references: {
       model: 'users',
       key: 'id'
@@ -18,6 +19,7 @@ const Attendance = sequelize.define('Attendance', {
   workplaceId: {
     type: DataTypes.UUID,
     allowNull: false,
+    field: 'workplace_id',
     references: {
       model: 'workplaces',
       key: 'id'
@@ -25,35 +27,34 @@ const Attendance = sequelize.define('Attendance', {
   },
   checkInTime: {
     type: DataTypes.DATE,
-    allowNull: false
+    allowNull: false,
+    field: 'check_in_time'
   },
   checkOutTime: {
-    type: DataTypes.DATE
+    type: DataTypes.DATE,
+    field: 'check_out_time'
   },
   status: {
-    type: DataTypes.ENUM('present', 'late', 'absent'),
+    type: DataTypes.STRING,
     allowNull: false,
-    defaultValue: 'present'
+    defaultValue: 'present',
+    validate: {
+      isIn: [['present', 'late', 'absent']]
+    }
   },
   notes: {
     type: DataTypes.TEXT
   },
   ipAddress: {
-    type: DataTypes.STRING
+    type: DataTypes.STRING,
+    field: 'ip_address'
   },
   userAgent: {
-    type: DataTypes.TEXT
+    type: DataTypes.TEXT,
+    field: 'user_agent'
   }
 }, {
-  tableName: 'attendance',
-  indexes: [
-    {
-      fields: ['userId', 'checkInTime']
-    },
-    {
-      fields: ['workplaceId', 'checkInTime']
-    }
-  ]
+  tableName: 'attendance'
 });
 
 module.exports = Attendance;
