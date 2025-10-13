@@ -25,7 +25,8 @@ import {
   CheckOutlined,
   CloseOutlined,
   DownloadOutlined,
-  EyeOutlined
+  EyeOutlined,
+  MessageOutlined
 } from '@ant-design/icons';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../utils/api';
@@ -43,6 +44,9 @@ const Reports = () => {
   const [viewModalVisible, setViewModalVisible] = useState(false);
   const [editingReport, setEditingReport] = useState(null);
   const [viewingReport, setViewingReport] = useState(null);
+  const [commentModalVisible, setCommentModalVisible] = useState(false);
+  const [selectedReportForComment, setSelectedReportForComment] = useState(null);
+  const [comment, setComment] = useState('');
   const [form] = Form.useForm();
 
   // Загрузка отчетов
@@ -165,6 +169,28 @@ const Reports = () => {
     }
   };
 
+  // Функции для работы с комментариями
+  const handleAddComment = (report) => {
+    setSelectedReportForComment(report);
+    setComment('');
+    setCommentModalVisible(true);
+  };
+
+  const handleSubmitComment = async () => {
+    try {
+      await api.patch(`/reports/${selectedReportForComment.id}/comment`, {
+        comment: comment
+      });
+      message.success('Комментарий добавлен');
+      setCommentModalVisible(false);
+      setComment('');
+      fetchReports(); // Обновляем список отчетов
+    } catch (error) {
+      console.error('Error adding comment:', error);
+      message.error('Ошибка при добавлении комментария');
+    }
+  };
+
   const getStatusTag = (status) => {
     const statusConfig = {
       draft: { color: 'default', text: 'Черновик' },
@@ -213,6 +239,13 @@ const Reports = () => {
               icon={<EyeOutlined />} 
               size="small"
               onClick={() => handleView(record)}
+            />
+          </Tooltip>
+          <Tooltip title="Комментарий">
+            <Button 
+              icon={<MessageOutlined />} 
+              size="small"
+              onClick={() => handleAddComment(record)}
             />
           </Tooltip>
           {record.status === 'draft' && (
@@ -437,6 +470,61 @@ const Reports = () => {
                 </div>
               </div>
             )}
+          </div>
+        )}
+      </Modal>
+
+      {/* Модальное окно для добавления комментария */}
+      <Modal
+        title="Добавить комментарий к отчету"
+        open={commentModalVisible}
+        onCancel={() => setCommentModalVisible(false)}
+        footer={[
+          <Button key="cancel" onClick={() => setCommentModalVisible(false)}>
+            Отмена
+          </Button>,
+          <Button key="submit" type="primary" onClick={handleSubmitComment}>
+            Добавить комментарий
+          </Button>
+        ]}
+      >
+        {selectedReportForComment && (
+          <div>
+            <h4>{selectedReportForComment.title}</h4>
+            <p><strong>Автор:</strong> {selectedReportForComment.user?.firstName} {selectedReportForComment.user?.lastName}</p>
+            <p><strong>Статус:</strong> {
+              selectedReportForComment.status === 'approved' ? 'Утвержден' :
+              selectedReportForComment.status === 'rejected' ? 'Отклонен' :
+              selectedReportForComment.status === 'submitted' ? 'На рассмотрении' : 'Черновик'
+            }</p>
+            
+            {selectedReportForComment.comments && (
+              <div style={{ marginTop: '16px' }}>
+                <h5>Существующие комментарии:</h5>
+                <div style={{ 
+                  padding: '12px', 
+                  backgroundColor: '#f9f9f9', 
+                  borderRadius: '4px',
+                  whiteSpace: 'pre-wrap',
+                  maxHeight: '200px',
+                  overflowY: 'auto',
+                  marginBottom: '16px'
+                }}>
+                  {selectedReportForComment.comments}
+                </div>
+              </div>
+            )}
+            
+            <div style={{ marginTop: '16px' }}>
+              <label>Ваш комментарий:</label>
+              <TextArea
+                value={comment}
+                onChange={(e) => setComment(e.target.value)}
+                placeholder="Введите ваш комментарий..."
+                rows={4}
+                style={{ marginTop: '8px' }}
+              />
+            </div>
           </div>
         )}
       </Modal>

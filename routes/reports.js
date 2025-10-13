@@ -286,6 +286,45 @@ router.delete('/:reportId', authenticateToken, async (req, res) => {
   }
 });
 
+// Добавление комментария к отчету
+router.patch('/:reportId/comment', authenticateToken, async (req, res) => {
+  try {
+    const { reportId } = req.params;
+    const { comment } = req.body;
+
+    if (!comment || comment.trim() === '') {
+      return res.status(400).json({ message: 'Комментарий не может быть пустым' });
+    }
+
+    const report = await Report.findByPk(reportId);
+    if (!report) {
+      return res.status(404).json({ message: 'Отчет не найден' });
+    }
+
+    // Проверяем права доступа: только автор отчета или менеджер
+    if (report.userId !== req.user.id && req.user.role !== 'manager') {
+      return res.status(403).json({ message: 'Нет прав для добавления комментария к этому отчету' });
+    }
+
+    // Добавляем комментарий к существующим комментариям
+    const existingComments = report.comments || '';
+    const newComment = `[${new Date().toLocaleString('ru-RU')}] ${req.user.firstName} ${req.user.lastName}: ${comment}`;
+    const updatedComments = existingComments ? `${existingComments}\n\n${newComment}` : newComment;
+
+    await report.update({
+      comments: updatedComments
+    });
+
+    res.json({
+      message: 'Комментарий добавлен',
+      report
+    });
+  } catch (error) {
+    console.error('Ошибка добавления комментария:', error);
+    res.status(500).json({ message: 'Ошибка при добавлении комментария' });
+  }
+});
+
 // Экспорт отчетов в CSV
 router.get('/export/csv', authenticateToken, async (req, res) => {
   try {

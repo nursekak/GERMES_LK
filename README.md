@@ -241,6 +241,9 @@ node scripts/backup.js schedule
 - `POST /api/attendance/manual-check-out` - ручная отметка ухода (только для руководителей)
 - `GET /api/attendance/my-stats` - личная статистика посещений
 - `GET /api/attendance/all-stats` - общая статистика (только для руководителей)
+- `GET /api/attendance/full-stats-30-days` - полная статистика за 30 дней (только для руководителей)
+- `PUT /api/attendance/update-absence-reason` - обновление причины отсутствия (только для руководителей)
+- `GET /api/attendance/export-excel` - экспорт в Excel (только для руководителей)
 - `GET /api/attendance/current` - текущая активная явка
 
 ### Отчеты

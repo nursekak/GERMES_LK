@@ -347,8 +347,8 @@ const Workplaces = () => {
                 value={qrCodeData.workplace.qrCode} 
                 size={200}
                 style={{ border: '1px solid #d9d9d9', borderRadius: '8px' }}
-              />
-            </div>
+          />
+        </div>
             <p style={{ color: '#666', fontSize: '12px' }}>
               Отсканируйте QR код для регистрации явки на работу
             </p>

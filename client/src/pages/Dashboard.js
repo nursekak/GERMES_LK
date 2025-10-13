@@ -1,27 +1,45 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../contexts/AuthContext';
-import axios from 'axios';
+import api from '../utils/api';
+import { Modal, Button, Input, message } from 'antd';
+import { EyeOutlined, MessageOutlined } from '@ant-design/icons';
 
 const Dashboard = () => {
   const { user, isManager } = useAuth();
+  const [selectedReport, setSelectedReport] = useState(null);
+  const [isReportModalVisible, setIsReportModalVisible] = useState(false);
+  const [isCommentModalVisible, setIsCommentModalVisible] = useState(false);
+  const [comment, setComment] = useState('');
 
   // Загрузка статистики
   const { data: stats, isLoading, error, refetch } = useQuery(
     ['dashboard-stats'],
     async () => {
-      const [attendanceRes, reportsRes] = await Promise.all([
-        axios.get('/api/attendance/my-stats'),
-        axios.get('/api/reports/my-reports?limit=5')
-      ]);
+      try {
+        const [attendanceRes, reportsRes] = await Promise.all([
+          api.get('/attendance/my-stats'),
+          isManager 
+            ? api.get('/reports/all?limit=5') 
+            : api.get('/reports/my-reports?limit=5')
+        ]);
 
-      return {
-        attendance: attendanceRes.data.stats,
-        recentReports: reportsRes.data.reports
-      };
+        console.log('Dashboard reports response:', reportsRes.data);
+        return {
+          attendance: attendanceRes.data.stats,
+          recentReports: reportsRes.data.reports || reportsRes.data
+        };
+      } catch (error) {
+        console.error('Error fetching dashboard stats:', error);
+        return {
+          attendance: null,
+          recentReports: []
+        };
+      }
     },
     {
       refetchInterval: 30000, // Обновление каждые 30 секунд
+      retry: 1
     }
   );
 
@@ -29,22 +47,61 @@ const Dashboard = () => {
   const { data: managerStats } = useQuery(
     ['manager-stats'],
     async () => {
-      const [usersRes, workplacesRes, allAttendanceRes] = await Promise.all([
-        axios.get('/api/users?limit=1'),
-        axios.get('/api/workplaces?limit=1'),
-        axios.get('/api/attendance/all-stats')
-      ]);
+      try {
+        const [usersRes, workplacesRes, fullStatsRes] = await Promise.all([
+          api.get('/users?limit=1'),
+          api.get('/workplaces?limit=1'),
+          api.get('/attendance/full-stats-30-days')
+        ]);
 
-      return {
-        totalUsers: usersRes.data.pagination.total,
-        totalWorkplaces: workplacesRes.data.pagination.total,
-        totalAttendance: allAttendanceRes.data.totalRecords
-      };
+        return {
+          totalUsers: usersRes.data.pagination?.total || 0,
+          totalWorkplaces: workplacesRes.data.pagination?.total || 0,
+          totalAttendance: fullStatsRes.data.days?.length || 0,
+          totalEmployees: fullStatsRes.data.users?.length || 0
+        };
+      } catch (error) {
+        console.error('Error fetching manager stats:', error);
+        return {
+          totalUsers: 0,
+          totalWorkplaces: 0,
+          totalAttendance: 0,
+          totalEmployees: 0
+        };
+      }
     },
     {
       enabled: isManager,
+      retry: 1
     }
   );
+
+  // Функции для работы с отчетами
+  const handleViewReport = (report) => {
+    setSelectedReport(report);
+    setIsReportModalVisible(true);
+  };
+
+  const handleAddComment = (report) => {
+    setSelectedReport(report);
+    setComment('');
+    setIsCommentModalVisible(true);
+  };
+
+  const handleSubmitComment = async () => {
+    try {
+      await api.patch(`/reports/${selectedReport.id}/comment`, {
+        comment: comment
+      });
+      message.success('Комментарий добавлен');
+      setIsCommentModalVisible(false);
+      setComment('');
+      refetch(); // Обновляем данные
+    } catch (error) {
+      console.error('Error adding comment:', error);
+      message.error('Ошибка при добавлении комментария');
+    }
+  };
 
   if (isLoading) {
     return (
@@ -203,7 +260,19 @@ const Dashboard = () => {
             }}>
               <div style={{ fontSize: '24px', marginBottom: '8px' }}>📈</div>
               <h3 style={{ margin: '0 0 8px 0', color: '#faad14' }}>{managerStats.totalAttendance}</h3>
-              <p style={{ margin: 0, color: '#666' }}>Всего посещений</p>
+              <p style={{ margin: 0, color: '#666' }}>Дней в статистике</p>
+            </div>
+            
+            <div style={{
+              background: 'white',
+              border: '1px solid #f0f0f0',
+              borderRadius: '8px',
+              padding: '20px',
+              textAlign: 'center'
+            }}>
+              <div style={{ fontSize: '24px', marginBottom: '8px' }}>👨‍💼</div>
+              <h3 style={{ margin: '0 0 8px 0', color: '#722ed1' }}>{managerStats.totalEmployees}</h3>
+              <p style={{ margin: 0, color: '#666' }}>Активных сотрудников</p>
             </div>
           </>
         )}
@@ -306,29 +375,48 @@ const Dashboard = () => {
                   justifyContent: 'space-between',
                   alignItems: 'center'
                 }}>
-                  <div>
+                  <div style={{ flex: 1 }}>
                     <div style={{ fontWeight: '500' }}>{report.title}</div>
                     <div style={{ fontSize: '12px', color: '#666' }}>
                       {new Date(report.reportDate).toLocaleDateString('ru-RU')}
+                      {report.user && ` • ${report.user.firstName} ${report.user.lastName}`}
                     </div>
                   </div>
-                  <span style={{
-                    padding: '4px 8px',
-                    borderRadius: '4px',
-                    fontSize: '12px',
-                    backgroundColor: 
-                      report.status === 'approved' ? '#f6ffed' :
-                      report.status === 'rejected' ? '#fff2f0' :
-                      report.status === 'submitted' ? '#fff7e6' : '#f0f0f0',
-                    color:
-                      report.status === 'approved' ? '#52c41a' :
-                      report.status === 'rejected' ? '#ff4d4f' :
-                      report.status === 'submitted' ? '#faad14' : '#666'
-                  }}>
-                    {report.status === 'approved' ? 'Утвержден' :
-                     report.status === 'rejected' ? 'Отклонен' :
-                     report.status === 'submitted' ? 'На рассмотрении' : 'Черновик'}
-                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{
+                      padding: '4px 8px',
+                      borderRadius: '4px',
+                      fontSize: '12px',
+                      backgroundColor: 
+                        report.status === 'approved' ? '#f6ffed' :
+                        report.status === 'rejected' ? '#fff2f0' :
+                        report.status === 'submitted' ? '#fff7e6' : '#f0f0f0',
+                      color:
+                        report.status === 'approved' ? '#52c41a' :
+                        report.status === 'rejected' ? '#ff4d4f' :
+                        report.status === 'submitted' ? '#faad14' : '#666'
+                    }}>
+                      {report.status === 'approved' ? 'Утвержден' :
+                       report.status === 'rejected' ? 'Отклонен' :
+                       report.status === 'submitted' ? 'На рассмотрении' : 'Черновик'}
+                    </span>
+                    <Button
+                      type="text"
+                      icon={<EyeOutlined />}
+                      onClick={() => handleViewReport(report)}
+                      size="small"
+                    >
+                      Просмотр
+                    </Button>
+                    <Button
+                      type="text"
+                      icon={<MessageOutlined />}
+                      onClick={() => handleAddComment(report)}
+                      size="small"
+                    >
+                      Комментарий
+                    </Button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -339,6 +427,113 @@ const Dashboard = () => {
           )}
         </div>
       </div>
+
+      {/* Модальное окно для просмотра отчета */}
+      <Modal
+        title="Просмотр отчета"
+        open={isReportModalVisible}
+        onCancel={() => setIsReportModalVisible(false)}
+        footer={[
+          <Button key="close" onClick={() => setIsReportModalVisible(false)}>
+            Закрыть
+          </Button>
+        ]}
+        width={800}
+      >
+        {selectedReport && (
+          <div>
+            <h3>{selectedReport.title}</h3>
+            <p><strong>Дата:</strong> {new Date(selectedReport.reportDate).toLocaleDateString('ru-RU')}</p>
+            {selectedReport.user && (
+              <p><strong>Автор:</strong> {selectedReport.user.firstName} {selectedReport.user.lastName}</p>
+            )}
+            <p><strong>Статус:</strong> {
+              selectedReport.status === 'approved' ? 'Утвержден' :
+              selectedReport.status === 'rejected' ? 'Отклонен' :
+              selectedReport.status === 'submitted' ? 'На рассмотрении' : 'Черновик'
+            }</p>
+            <div style={{ marginTop: '16px' }}>
+              <h4>Содержание:</h4>
+              <div style={{ 
+                padding: '12px', 
+                backgroundColor: '#f5f5f5', 
+                borderRadius: '4px',
+                whiteSpace: 'pre-wrap'
+              }}>
+                {selectedReport.content}
+              </div>
+            </div>
+            {selectedReport.comments && (
+              <div style={{ marginTop: '16px' }}>
+                <h4>Комментарии:</h4>
+                <div style={{ 
+                  padding: '12px', 
+                  backgroundColor: '#f9f9f9', 
+                  borderRadius: '4px',
+                  whiteSpace: 'pre-wrap'
+                }}>
+                  {selectedReport.comments}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
+
+      {/* Модальное окно для добавления комментария */}
+      <Modal
+        title="Добавить комментарий к отчету"
+        open={isCommentModalVisible}
+        onCancel={() => setIsCommentModalVisible(false)}
+        footer={[
+          <Button key="cancel" onClick={() => setIsCommentModalVisible(false)}>
+            Отмена
+          </Button>,
+          <Button key="submit" type="primary" onClick={handleSubmitComment}>
+            Добавить комментарий
+          </Button>
+        ]}
+      >
+        {selectedReport && (
+          <div>
+            <h4>{selectedReport.title}</h4>
+            <p><strong>Автор:</strong> {selectedReport.user?.firstName} {selectedReport.user?.lastName}</p>
+            <p><strong>Статус:</strong> {
+              selectedReport.status === 'approved' ? 'Утвержден' :
+              selectedReport.status === 'rejected' ? 'Отклонен' :
+              selectedReport.status === 'submitted' ? 'На рассмотрении' : 'Черновик'
+            }</p>
+            
+            {selectedReport.comments && (
+              <div style={{ marginTop: '16px' }}>
+                <h5>Существующие комментарии:</h5>
+                <div style={{ 
+                  padding: '12px', 
+                  backgroundColor: '#f9f9f9', 
+                  borderRadius: '4px',
+                  whiteSpace: 'pre-wrap',
+                  maxHeight: '200px',
+                  overflowY: 'auto',
+                  marginBottom: '16px'
+                }}>
+                  {selectedReport.comments}
+                </div>
+              </div>
+            )}
+            
+            <div style={{ marginTop: '16px' }}>
+              <label>Ваш комментарий:</label>
+              <Input.TextArea
+                value={comment}
+                onChange={(e) => setComment(e.target.value)}
+                placeholder="Введите ваш комментарий..."
+                rows={4}
+                style={{ marginTop: '8px' }}
+              />
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 };

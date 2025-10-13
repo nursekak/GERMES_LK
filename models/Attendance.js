@@ -39,7 +39,7 @@ const Attendance = sequelize.define('Attendance', {
     allowNull: false,
     defaultValue: 'present',
     validate: {
-      isIn: [['present', 'late', 'absent']]
+      isIn: [['present', 'late', 'absent', 'sick', 'business_trip', 'vacation', 'no_reason']]
     }
   },
   notes: {

@@ -4,6 +4,7 @@ const { Attendance, Workplace, User } = require('../models');
 const { authenticateToken, requireRole, requireOwnershipOrManager } = require('../middleware/auth');
 const { validateManualCheckIn, validateManualCheckOut } = require('../middleware/validation');
 const { Op } = require('sequelize');
+const XLSX = require('xlsx');
 
 const router = express.Router();
 
@@ -423,6 +424,305 @@ router.get('/current', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Ошибка получения текущей явки:', error);
     res.status(500).json({ message: 'Ошибка при получении текущей явки' });
+  }
+});
+
+// Получение полной статистики за период для всех сотрудников
+router.get('/full-stats-30-days', authenticateToken, requireRole(['manager']), async (req, res) => {
+  try {
+    let endDate = new Date();
+    let startDate = new Date();
+    
+    // Если переданы параметры дат, используем их
+    if (req.query.startDate && req.query.endDate) {
+      startDate = new Date(req.query.startDate);
+      endDate = new Date(req.query.endDate);
+    } else {
+      // По умолчанию - последние 30 дней
+      startDate.setDate(startDate.getDate() - 30);
+    }
+
+    // Получаем всех сотрудников
+    const users = await User.findAll({
+      where: { role: 'employee' },
+      order: [['lastName', 'ASC'], ['firstName', 'ASC']]
+    });
+
+    // Получаем все записи посещений за период
+    const attendanceRecords = await Attendance.findAll({
+      where: {
+        checkInTime: {
+          [Op.gte]: startDate,
+          [Op.lte]: endDate
+        }
+      },
+      include: [
+        { model: User, as: 'user' },
+        { model: Workplace, as: 'workplace' }
+      ],
+      order: [['checkInTime', 'ASC']]
+    });
+
+    // Создаем карту посещений по пользователям и датам
+    const attendanceMap = {};
+    attendanceRecords.forEach(record => {
+      const userId = record.userId;
+      const date = record.checkInTime.toISOString().split('T')[0];
+      
+      if (!attendanceMap[userId]) {
+        attendanceMap[userId] = {};
+      }
+      
+      attendanceMap[userId][date] = {
+        status: record.status,
+        checkInTime: record.checkInTime,
+        checkOutTime: record.checkOutTime,
+        notes: record.notes,
+        workplace: record.workplace
+      };
+    });
+
+    // Генерируем данные для каждого дня
+    const result = [];
+    const currentDate = new Date(startDate);
+    
+    while (currentDate <= endDate) {
+      const dateStr = currentDate.toISOString().split('T')[0];
+      const dayOfWeek = currentDate.getDay();
+      const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+      
+      const dayData = {
+        date: dateStr,
+        isWeekend: isWeekend,
+        employees: []
+      };
+
+      users.forEach(user => {
+        const userAttendance = attendanceMap[user.id]?.[dateStr];
+        
+        if (userAttendance) {
+          // Есть запись о посещении
+          dayData.employees.push({
+            userId: user.id,
+            user: user,
+            status: userAttendance.status,
+            checkInTime: userAttendance.checkInTime,
+            checkOutTime: userAttendance.checkOutTime,
+            notes: userAttendance.notes,
+            workplace: userAttendance.workplace
+          });
+        } else if (!isWeekend) {
+          // Нет записи и это не выходной - отсутствие
+          dayData.employees.push({
+            userId: user.id,
+            user: user,
+            status: 'absent',
+            checkInTime: null,
+            checkOutTime: null,
+            notes: null,
+            workplace: null
+          });
+        }
+      });
+
+      result.push(dayData);
+      currentDate.setDate(currentDate.getDate() + 1);
+    }
+
+    res.json({
+      startDate: startDate.toISOString().split('T')[0],
+      endDate: endDate.toISOString().split('T')[0],
+      days: result,
+      users: users
+    });
+  } catch (error) {
+    console.error('Ошибка получения полной статистики:', error);
+    res.status(500).json({ message: 'Ошибка при получении полной статистики' });
+  }
+});
+
+// Обновление причины отсутствия
+router.put('/update-absence-reason', authenticateToken, requireRole(['manager']), async (req, res) => {
+  try {
+    const { userId, date, reason, notes } = req.body;
+    
+    if (!userId || !date || !reason) {
+      return res.status(400).json({ message: 'Необходимо указать userId, date и reason' });
+    }
+
+    const validReasons = ['sick', 'business_trip', 'vacation', 'no_reason'];
+    if (!validReasons.includes(reason)) {
+      return res.status(400).json({ message: 'Недопустимая причина отсутствия' });
+    }
+
+    // Находим или создаем запись о посещении
+    const startOfDay = new Date(date + 'T00:00:00.000Z');
+    const endOfDay = new Date(date + 'T23:59:59.999Z');
+
+    let attendance = await Attendance.findOne({
+      where: {
+        userId: userId,
+        checkInTime: {
+          [Op.gte]: startOfDay,
+          [Op.lte]: endOfDay
+        }
+      }
+    });
+
+    if (attendance) {
+      // Обновляем существующую запись
+      attendance.status = reason;
+      attendance.notes = notes;
+      await attendance.save();
+    } else {
+      // Создаем новую запись об отсутствии
+      attendance = await Attendance.create({
+        userId: userId,
+        workplaceId: null, // Для отсутствий workplace может быть null
+        checkInTime: startOfDay,
+        checkOutTime: null,
+        status: reason,
+        notes: notes
+      });
+    }
+
+    res.json({ message: 'Причина отсутствия обновлена', attendance });
+  } catch (error) {
+    console.error('Ошибка обновления причины отсутствия:', error);
+    res.status(500).json({ message: 'Ошибка при обновлении причины отсутствия' });
+  }
+});
+
+// Экспорт в Excel
+router.get('/export-excel', authenticateToken, requireRole(['manager']), async (req, res) => {
+  try {
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - 30);
+
+    // Получаем данные
+    const users = await User.findAll({
+      where: { role: 'employee' },
+      order: [['lastName', 'ASC'], ['firstName', 'ASC']]
+    });
+
+    const attendanceRecords = await Attendance.findAll({
+      where: {
+        checkInTime: {
+          [Op.gte]: startDate,
+          [Op.lte]: endDate
+        }
+      },
+      include: [
+        { model: User, as: 'user' },
+        { model: Workplace, as: 'workplace' }
+      ],
+      order: [['checkInTime', 'ASC']]
+    });
+
+    // Создаем карту посещений
+    const attendanceMap = {};
+    attendanceRecords.forEach(record => {
+      const userId = record.userId;
+      const date = record.checkInTime.toISOString().split('T')[0];
+      
+      if (!attendanceMap[userId]) {
+        attendanceMap[userId] = {};
+      }
+      
+      attendanceMap[userId][date] = record;
+    });
+
+    // Подготавливаем данные для Excel
+    const excelData = [];
+    
+    // Заголовки
+    excelData.push([
+      'Дата',
+      'Сотрудник',
+      'Статус',
+      'Время прихода',
+      'Время ухода',
+      'Место работы',
+      'Примечания'
+    ]);
+
+    // Генерируем данные для каждого дня
+    const currentDate = new Date(startDate);
+    while (currentDate <= endDate) {
+      const dateStr = currentDate.toISOString().split('T')[0];
+      const dayOfWeek = currentDate.getDay();
+      const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+      
+      users.forEach(user => {
+        const userAttendance = attendanceMap[user.id]?.[dateStr];
+        
+        if (userAttendance) {
+          // Есть запись о посещении
+          const statusText = {
+            'present': 'Присутствовал',
+            'late': 'Опоздал',
+            'absent': 'Отсутствовал',
+            'sick': 'Болезнь',
+            'business_trip': 'Командировка',
+            'vacation': 'Отпуск',
+            'no_reason': 'Без причины'
+          }[userAttendance.status] || userAttendance.status;
+
+          excelData.push([
+            dateStr,
+            `${user.lastName} ${user.firstName}`,
+            statusText,
+            userAttendance.checkInTime ? userAttendance.checkInTime.toLocaleString('ru-RU') : '',
+            userAttendance.checkOutTime ? userAttendance.checkOutTime.toLocaleString('ru-RU') : '',
+            userAttendance.workplace ? userAttendance.workplace.name : '',
+            userAttendance.notes || ''
+          ]);
+        } else if (!isWeekend) {
+          // Нет записи и это не выходной - отсутствие
+          excelData.push([
+            dateStr,
+            `${user.lastName} ${user.firstName}`,
+            'Отсутствовал',
+            '',
+            '',
+            '',
+            ''
+          ]);
+        }
+      });
+
+      currentDate.setDate(currentDate.getDate() + 1);
+    }
+
+    // Создаем Excel файл
+    const ws = XLSX.utils.aoa_to_sheet(excelData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Посещения');
+
+    // Настраиваем ширину столбцов
+    const colWidths = [
+      { wch: 12 }, // Дата
+      { wch: 20 }, // Сотрудник
+      { wch: 15 }, // Статус
+      { wch: 20 }, // Время прихода
+      { wch: 20 }, // Время ухода
+      { wch: 25 }, // Место работы
+      { wch: 30 }  // Примечания
+    ];
+    ws['!cols'] = colWidths;
+
+    // Генерируем файл
+    const excelBuffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+
+    // Отправляем файл
+    const filename = `Посещения_${startDate.toISOString().split('T')[0]}_${endDate.toISOString().split('T')[0]}.xlsx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(excelBuffer);
+  } catch (error) {
+    console.error('Ошибка экспорта в Excel:', error);
+    res.status(500).json({ message: 'Ошибка при экспорте в Excel' });
   }
 });
 

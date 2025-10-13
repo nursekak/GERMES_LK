@@ -16,7 +16,9 @@ import {
   Modal,
   Form,
   Input,
-  TimePicker
+  TimePicker,
+  Drawer,
+  Badge
 } from 'antd';
 import { 
   ClockCircleOutlined, 
@@ -26,7 +28,8 @@ import {
   CalendarOutlined,
   DownloadOutlined,
   PlusOutlined,
-  EditOutlined
+  EditOutlined,
+  EyeOutlined
 } from '@ant-design/icons';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../utils/api';
@@ -38,460 +41,572 @@ const { Option } = Select;
 
 const Attendance = () => {
   const { user, isManager } = useAuth();
-  const [attendanceData, setAttendanceData] = useState([]);
+  const [fullStatsData, setFullStatsData] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [stats, setStats] = useState({});
+  const [selectedDate, setSelectedDate] = useState(() => dayjs());
   const [dateRange, setDateRange] = useState([
-    dayjs().subtract(30, 'day'),
+    dayjs().subtract(7, 'day'),
     dayjs()
   ]);
   const [selectedUser, setSelectedUser] = useState(null);
   const [users, setUsers] = useState([]);
   const [workplaces, setWorkplaces] = useState([]);
-  const [manualModalVisible, setManualModalVisible] = useState(false);
-  const [checkOutModalVisible, setCheckOutModalVisible] = useState(false);
-  const [form] = Form.useForm();
+  
+  // Модальные окна
+  const [isManualCheckInModalVisible, setIsManualCheckInModalVisible] = useState(false);
+  const [isManualCheckOutModalVisible, setIsManualCheckOutModalVisible] = useState(false);
+  const [isAbsenceReasonModalVisible, setIsAbsenceReasonModalVisible] = useState(false);
+  const [selectedAbsenceRecord, setSelectedAbsenceRecord] = useState(null);
+  
+  // Формы
+  const [manualCheckInForm] = Form.useForm();
+  const [manualCheckOutForm] = Form.useForm();
+  const [absenceReasonForm] = Form.useForm();
 
-  // Загрузка статистики посещений
-  const fetchStats = async () => {
+  // Загрузка данных
+  useEffect(() => {
+    fetchFullStats();
+    fetchUsers();
+    fetchWorkplaces();
+  }, []);
+
+  const fetchFullStats = async (startDate = null, endDate = null) => {
     try {
-      const params = {
-        startDate: dateRange[0]?.format('YYYY-MM-DD'),
-        endDate: dateRange[1]?.format('YYYY-MM-DD'),
-      };
+      setLoading(true);
+      console.log('Fetching full stats...');
       
-      if (isManager && selectedUser) {
-        params.userId = selectedUser;
+      const params = {};
+      if (startDate && endDate) {
+        params.startDate = startDate.format('YYYY-MM-DD');
+        params.endDate = endDate.format('YYYY-MM-DD');
       }
-
-      const response = isManager 
-        ? await api.get('/attendance/all-stats', { params })
-        : await api.get('/attendance/my-stats', { params });
       
-      console.log('Stats API response:', response.data);
-      
-      // Для менеджера берем статистику из userStats, для обычного пользователя - из stats
-      if (isManager && response.data.userStats) {
-        // Если есть выбранный пользователь, берем его статистику
-        if (selectedUser) {
-          const userStat = response.data.userStats.find(stat => stat.user.id === selectedUser);
-          setStats(userStat ? {
-            totalDays: userStat.totalDays,
-            presentDays: userStat.presentDays,
-            lateDays: userStat.lateDays
-          } : {});
-        } else {
-          // Если нет выбранного пользователя, показываем общую статистику
-          const totalStats = response.data.userStats.reduce((acc, userStat) => ({
-            totalDays: acc.totalDays + userStat.totalDays,
-            presentDays: acc.presentDays + userStat.presentDays,
-            lateDays: acc.lateDays + userStat.lateDays
-          }), { totalDays: 0, presentDays: 0, lateDays: 0 });
-          setStats(totalStats);
-        }
-      } else {
-        setStats(response.data.stats || response.data);
-      }
+      const response = await api.get('/attendance/full-stats-30-days', { params });
+      console.log('Full stats response:', response.data);
+      setFullStatsData(response.data);
+      console.log('fullStatsData state updated:', response.data);
     } catch (error) {
-      console.error('Error fetching stats:', error);
+      console.error('Error fetching full stats:', error);
+      console.error('Error details:', error.response?.data);
       message.error('Ошибка загрузки статистики');
-    }
-  };
-
-  // Загрузка данных посещений
-  const fetchAttendance = async () => {
-    setLoading(true);
-    try {
-      const params = {
-        startDate: dateRange[0]?.format('YYYY-MM-DD'),
-        endDate: dateRange[1]?.format('YYYY-MM-DD'),
-      };
-      
-      if (isManager && selectedUser) {
-        params.userId = selectedUser;
-      }
-
-      console.log('Fetching attendance with params:', params);
-      const response = isManager 
-        ? await api.get('/attendance/all-stats', { params })
-        : await api.get('/attendance/my-stats', { params });
-      
-      console.log('Attendance API response:', response.data);
-      
-      // Убеждаемся, что мы устанавливаем массив
-      let attendanceArray = [];
-      
-      if (response.data.attendance) {
-        // Если есть прямой массив attendance
-        attendanceArray = response.data.attendance;
-        console.log('Using direct attendance array:', attendanceArray.length);
-      } else if (response.data.userStats) {
-        // Если есть userStats, извлекаем все записи из records
-        console.log('userStats structure:', response.data.userStats);
-        attendanceArray = response.data.userStats.flatMap(userStat => {
-          console.log('userStat:', userStat);
-          return userStat.records || [];
-        });
-        console.log('Extracted from userStats:', attendanceArray.length);
-      }
-      
-      console.log('Final attendance data:', attendanceArray);
-      setAttendanceData(Array.isArray(attendanceArray) ? attendanceArray : []);
-    } catch (error) {
-      console.error('Error fetching attendance:', error);
-      message.error('Ошибка загрузки данных посещений');
     } finally {
       setLoading(false);
     }
   };
 
-  // Загрузка списка пользователей (для руководителей)
   const fetchUsers = async () => {
-    console.log('fetchUsers called, isManager:', isManager);
-    if (!isManager) {
-      console.log('Not a manager, skipping users fetch');
-      return;
-    }
-    
     try {
       console.log('Fetching users...');
-      const response = await api.get('/users', {
-        params: {
-          limit: 1000, // Загружаем всех пользователей
-          page: 1
-        }
-      });
-      console.log('Users API response:', response.data);
-      const usersArray = response.data.users || [];
-      console.log('Users array:', usersArray);
-      setUsers(Array.isArray(usersArray) ? usersArray : []);
+      const response = await api.get('/users', { params: { limit: 1000 } });
+      console.log('Users response:', response.data);
+      const usersData = Array.isArray(response.data) ? response.data : response.data.users || [];
+      console.log('Setting users:', usersData);
+      setUsers(usersData);
     } catch (error) {
-      console.error('Ошибка загрузки пользователей:', error);
-      message.error('Ошибка загрузки пользователей');
+      console.error('Error fetching users:', error);
+      console.error('Error details:', error.response?.data);
+      setUsers([]);
     }
   };
 
-  // Загрузка списка мест работы
   const fetchWorkplaces = async () => {
     try {
       console.log('Fetching workplaces...');
-      const response = await api.get('/workplaces', {
-        params: {
-          limit: 1000, // Загружаем все места работы
-          page: 1
-        }
-      });
-      console.log('Workplaces API response:', response.data);
-      const workplacesArray = response.data.workplaces || [];
-      console.log('Workplaces array:', workplacesArray);
-      setWorkplaces(Array.isArray(workplacesArray) ? workplacesArray : []);
+      const response = await api.get('/workplaces', { params: { limit: 1000 } });
+      console.log('Workplaces response:', response.data);
+      const workplacesData = Array.isArray(response.data) ? response.data : response.data.workplaces || [];
+      console.log('Setting workplaces:', workplacesData);
+      setWorkplaces(workplacesData);
     } catch (error) {
-      console.error('Ошибка загрузки мест работы:', error);
-      message.error('Ошибка загрузки мест работы');
+      console.error('Error fetching workplaces:', error);
+      console.error('Error details:', error.response?.data);
+      setWorkplaces([]);
     }
   };
 
-  useEffect(() => {
-    console.log('Attendance useEffect - isManager:', isManager, 'user:', user);
-    fetchStats();
-    fetchAttendance();
-    fetchUsers();
-    fetchWorkplaces();
-  }, [dateRange, selectedUser, isManager]);
+  // Получение данных для выбранной даты
+  const getDayData = () => {
+    console.log('getDayData - fullStatsData:', fullStatsData);
+    console.log('getDayData - selectedDate:', selectedDate);
+    
+    if (!fullStatsData || !selectedDate) {
+      console.log('getDayData - returning null (no data or date)');
+      return null;
+    }
+    
+    const dateStr = selectedDate.format('YYYY-MM-DD');
+    console.log('getDayData - looking for date:', dateStr);
+    console.log('getDayData - available days:', fullStatsData.days?.map(d => d.date));
+    
+    const dayData = fullStatsData.days.find(day => day.date === dateStr);
+    console.log('getDayData - found dayData:', dayData);
+    return dayData;
+  };
 
-  // Экспорт данных
-  const handleExport = async () => {
-    try {
-      const params = {
-        startDate: dateRange[0]?.format('YYYY-MM-DD'),
-        endDate: dateRange[1]?.format('YYYY-MM-DD'),
-        format: 'csv'
-      };
-      
-      if (isManager && selectedUser) {
-        params.userId = selectedUser;
+  // Получение данных для выбранного пользователя за период
+  const getUserStats = () => {
+    if (!fullStatsData || !selectedUser) {
+      return null;
+    }
+    
+    const userStats = {
+      userId: selectedUser,
+      totalDays: 0,
+      presentDays: 0,
+      lateDays: 0,
+      absentDays: 0,
+      sickDays: 0,
+      businessTripDays: 0,
+      vacationDays: 0,
+      noReasonDays: 0,
+      days: []
+    };
+    
+    fullStatsData.days.forEach(day => {
+      const userAttendance = day.employees.find(emp => emp.userId === selectedUser);
+      if (userAttendance) {
+        userStats.totalDays++;
+        userStats.days.push({
+          date: day.date,
+          ...userAttendance
+        });
+        
+        switch (userAttendance.status) {
+          case 'present':
+            userStats.presentDays++;
+            break;
+          case 'late':
+            userStats.lateDays++;
+            break;
+          case 'absent':
+            userStats.absentDays++;
+            break;
+          case 'sick':
+            userStats.sickDays++;
+            break;
+          case 'business_trip':
+            userStats.businessTripDays++;
+            break;
+          case 'vacation':
+            userStats.vacationDays++;
+            break;
+          case 'no_reason':
+            userStats.noReasonDays++;
+            break;
+        }
       }
+    });
+    
+    return userStats;
+  };
 
-      const response = await api.get('/attendance/export', { 
-        params,
+  // Получение данных для выбранного пользователя
+  const getUserData = () => {
+    const dayData = getDayData();
+    if (!dayData || !selectedUser) return null;
+    
+    return dayData.employees.find(emp => emp.userId === selectedUser);
+  };
+
+  // Обработчики форм
+  const handleManualCheckIn = async (values) => {
+    try {
+      await api.post('/attendance/manual-check-in', {
+        userId: values.userId,
+        workplaceId: values.workplaceId,
+        checkInTime: values.checkInTime.format('YYYY-MM-DD HH:mm:ss'),
+        notes: values.notes
+      });
+      
+      message.success('Приход отмечен');
+      setIsManualCheckInModalVisible(false);
+      manualCheckInForm.resetFields();
+      fetchFullStats();
+    } catch (error) {
+      console.error('Error marking check-in:', error);
+      message.error('Ошибка при отметке прихода');
+    }
+  };
+
+  const handleManualCheckOut = async (values) => {
+    try {
+      await api.post('/attendance/manual-check-out', {
+        userId: values.userId,
+        workplaceId: values.workplaceId,
+        checkOutTime: values.checkOutTime.format('YYYY-MM-DD HH:mm:ss'),
+        notes: values.notes
+      });
+      
+      message.success('Уход отмечен');
+      setIsManualCheckOutModalVisible(false);
+      manualCheckOutForm.resetFields();
+      fetchFullStats();
+    } catch (error) {
+      console.error('Error marking check-out:', error);
+      message.error('Ошибка при отметке ухода');
+    }
+  };
+
+  const handleUpdateAbsenceReason = async (values) => {
+    try {
+      await api.put('/attendance/update-absence-reason', {
+        userId: selectedAbsenceRecord.userId,
+        date: selectedDate.format('YYYY-MM-DD'),
+        reason: values.reason,
+        notes: values.notes
+      });
+      
+      message.success('Причина отсутствия обновлена');
+      setIsAbsenceReasonModalVisible(false);
+      absenceReasonForm.resetFields();
+      setSelectedAbsenceRecord(null);
+      fetchFullStats();
+    } catch (error) {
+      console.error('Error updating absence reason:', error);
+      message.error('Ошибка при обновлении причины отсутствия');
+    }
+  };
+
+  // Экспорт в Excel
+  const handleExportExcel = async () => {
+    try {
+      const response = await api.get('/attendance/export-excel', {
         responseType: 'blob'
       });
       
-      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const blob = new Blob([response.data], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      });
+      
+      const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', `attendance_${dayjs().format('YYYY-MM-DD')}.csv`);
-      document.body.appendChild(link);
+      link.download = `Посещения_${dayjs().subtract(30, 'day').format('YYYY-MM-DD')}_${dayjs().format('YYYY-MM-DD')}.xlsx`;
       link.click();
-      link.remove();
+      window.URL.revokeObjectURL(url);
       
-      message.success('Данные экспортированы');
+      message.success('Файл экспортирован');
     } catch (error) {
-      message.error('Ошибка экспорта данных');
+      console.error('Error exporting to Excel:', error);
+      message.error('Ошибка при экспорте в Excel');
     }
   };
 
-  // Ручная отметка присутствия
-  const handleManualCheckIn = async (values) => {
-    console.log('handleManualCheckIn called with values:', values);
-    try {
-      const { userId, workplaceId, checkInTime, notes } = values;
-      
-      console.log('Sending check-in request:', {
-        userId,
-        workplaceId,
-        checkInTime: checkInTime ? checkInTime.format('YYYY-MM-DD HH:mm:ss') : null,
-        notes
-      });
-      
-      const response = await api.post('/attendance/manual-check-in', {
-        userId,
-        workplaceId,
-        checkInTime: checkInTime ? checkInTime.format('YYYY-MM-DD HH:mm:ss') : null,
-        notes
-      });
-      
-      console.log('Check-in response:', response.data);
-      message.success('Присутствие отмечено');
-      setManualModalVisible(false);
-      form.resetFields();
-      
-      // Принудительно обновляем данные
-      console.log('Manual check-in successful, refreshing data...');
-      await fetchAttendance();
-      await fetchStats();
-    } catch (error) {
-      console.error('Error in handleManualCheckIn:', error);
-      const errorMessage = error.response?.data?.message || 'Ошибка отметки присутствия';
-      message.error(errorMessage);
-    }
+  // Получение статуса с цветом
+  const getStatusTag = (status) => {
+    const statusConfig = {
+      'present': { color: 'green', text: 'Присутствовал' },
+      'late': { color: 'orange', text: 'Опоздал' },
+      'absent': { color: 'red', text: 'Отсутствовал' },
+      'sick': { color: 'purple', text: 'Болезнь' },
+      'business_trip': { color: 'blue', text: 'Командировка' },
+      'vacation': { color: 'cyan', text: 'Отпуск' },
+      'no_reason': { color: 'red', text: 'Без причины' }
+    };
+    
+    const config = statusConfig[status] || { color: 'default', text: status };
+    return <Tag color={config.color}>{config.text}</Tag>;
   };
 
-  // Ручная отметка ухода
-  const handleManualCheckOut = async (values) => {
-    console.log('handleManualCheckOut called with values:', values);
-    try {
-      const { userId, checkOutTime, notes } = values;
-      
-      console.log('Sending check-out request:', {
-        userId,
-        checkOutTime: checkOutTime ? checkOutTime.format('YYYY-MM-DD HH:mm:ss') : null,
-        notes
-      });
-      
-      const response = await api.post('/attendance/manual-check-out', {
-        userId,
-        checkOutTime: checkOutTime ? checkOutTime.format('YYYY-MM-DD HH:mm:ss') : null,
-        notes
-      });
-      
-      console.log('Check-out response:', response.data);
-      message.success('Уход отмечен');
-      setCheckOutModalVisible(false);
-      form.resetFields();
-      
-      // Принудительно обновляем данные
-      console.log('Manual check-out successful, refreshing data...');
-      await fetchAttendance();
-      await fetchStats();
-    } catch (error) {
-      console.error('Error in handleManualCheckOut:', error);
-      const errorMessage = error.response?.data?.message || 'Ошибка отметки ухода';
-      message.error(errorMessage);
-    }
-  };
-
+  // Колонки для таблицы
   const columns = [
     {
-      title: 'Дата',
-      dataIndex: 'checkInTime',
-      key: 'checkInTime',
-      render: (date) => dayjs(date).format('DD.MM.YYYY'),
-      sorter: (a, b) => new Date(a.checkInTime) - new Date(b.checkInTime),
-    },
-    {
-      title: 'Время прихода',
-      dataIndex: 'checkInTime',
-      key: 'checkInTime',
-      render: (date) => dayjs(date).format('HH:mm'),
-    },
-    {
-      title: 'Время ухода',
-      dataIndex: 'checkOutTime',
-      key: 'checkOutTime',
-      render: (date) => date ? dayjs(date).format('HH:mm') : '-',
-    },
-    {
-      title: 'Место работы',
-      dataIndex: 'workplace',
-      key: 'workplace',
-      render: (workplace) => workplace?.name || '-',
+      title: 'Сотрудник',
+      dataIndex: 'user',
+      key: 'user',
+      render: (user) => `${user.lastName} ${user.firstName}`,
+      sorter: (a, b) => `${a.user.lastName} ${a.user.firstName}`.localeCompare(`${b.user.lastName} ${b.user.firstName}`)
     },
     {
       title: 'Статус',
       dataIndex: 'status',
       key: 'status',
-      render: (status) => {
-        const statusConfig = {
-          present: { color: 'green', text: 'Вовремя', icon: <CheckCircleOutlined /> },
-          late: { color: 'orange', text: 'Опоздание', icon: <ClockCircleOutlined /> },
-          absent: { color: 'red', text: 'Отсутствие', icon: <CloseCircleOutlined /> }
-        };
-        const config = statusConfig[status] || statusConfig.present;
-        return (
-          <Tag color={config.color} icon={config.icon}>
-            {config.text}
-          </Tag>
-        );
-      },
+      render: (status) => getStatusTag(status),
+      filters: [
+        { text: 'Присутствовал', value: 'present' },
+        { text: 'Опоздал', value: 'late' },
+        { text: 'Отсутствовал', value: 'absent' },
+        { text: 'Болезнь', value: 'sick' },
+        { text: 'Командировка', value: 'business_trip' },
+        { text: 'Отпуск', value: 'vacation' },
+        { text: 'Без причины', value: 'no_reason' }
+      ],
+      onFilter: (value, record) => record.status === value
     },
-    ...(isManager ? [{
-      title: 'Сотрудник',
-      dataIndex: 'user',
-      key: 'user',
-      render: (user) => user ? `${user.firstName} ${user.lastName}` : '-',
-    }] : []),
+    {
+      title: 'Время прихода',
+      dataIndex: 'checkInTime',
+      key: 'checkInTime',
+      render: (time) => time ? dayjs(time).format('HH:mm') : '-',
+      sorter: (a, b) => {
+        if (!a.checkInTime && !b.checkInTime) return 0;
+        if (!a.checkInTime) return 1;
+        if (!b.checkInTime) return -1;
+        return new Date(a.checkInTime) - new Date(b.checkInTime);
+      }
+    },
+    {
+      title: 'Время ухода',
+      dataIndex: 'checkOutTime',
+      key: 'checkOutTime',
+      render: (time) => time ? dayjs(time).format('HH:mm') : '-',
+      sorter: (a, b) => {
+        if (!a.checkOutTime && !b.checkOutTime) return 0;
+        if (!a.checkOutTime) return 1;
+        if (!b.checkOutTime) return -1;
+        return new Date(a.checkOutTime) - new Date(b.checkOutTime);
+      }
+    },
+    {
+      title: 'Место работы',
+      dataIndex: 'workplace',
+      key: 'workplace',
+      render: (workplace) => workplace ? workplace.name : '-'
+    },
+    {
+      title: 'Примечания',
+      dataIndex: 'notes',
+      key: 'notes',
+      render: (notes) => notes || '-'
+    },
+    {
+      title: 'Действия',
+      key: 'actions',
+      render: (_, record) => (
+        <Space>
+          {isManager && record.status === 'absent' && (
+            <Button
+              type="link"
+              icon={<EditOutlined />}
+              onClick={() => {
+                setSelectedAbsenceRecord(record);
+                setIsAbsenceReasonModalVisible(true);
+              }}
+            >
+              Указать причину
+            </Button>
+          )}
+        </Space>
+      )
+    }
   ];
+
+  const dayData = getDayData();
+  const userData = getUserData();
+  
+  console.log('Render - fullStatsData:', fullStatsData);
+  console.log('Render - selectedDate:', selectedDate);
+  console.log('Render - dayData:', dayData);
+  console.log('Render - users:', users);
+  console.log('Render - workplaces:', workplaces);
 
   return (
     <div>
       <Card>
-        <div style={{ 
-          display: 'flex', 
-          justifyContent: 'space-between', 
-          alignItems: 'center', 
-          marginBottom: '24px' 
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <ClockCircleOutlined style={{ fontSize: '24px', color: '#1890ff' }} />
-            <Title level={3} style={{ margin: 0 }}>Посещения</Title>
-          </div>
-          <Space>
-            {isManager && (
-              <>
-                <Button 
-                  type="primary" 
-                  icon={<PlusOutlined />} 
-                  onClick={() => setManualModalVisible(true)}
-                >
-                  Отметить присутствие
-                </Button>
-                <Button 
-                  icon={<EditOutlined />} 
-                  onClick={() => setCheckOutModalVisible(true)}
-                >
-                  Отметить уход
-                </Button>
-              </>
-            )}
-            <Button 
-              type="primary" 
-              icon={<DownloadOutlined />} 
-              onClick={handleExport}
-            >
-              Экспорт
-            </Button>
-          </Space>
-        </div>
+        <Row justify="space-between" align="middle" style={{ marginBottom: 16 }}>
+          <Col>
+            <Title level={3}>Посещения за 30 дней</Title>
+          </Col>
+          <Col>
+            <Space>
+              <Button
+                type="primary"
+                icon={<DownloadOutlined />}
+                onClick={handleExportExcel}
+                disabled={!isManager}
+              >
+                Экспорт в Excel
+              </Button>
+              {isManager && (
+                <>
+                  <Button
+                    type="default"
+                    icon={<PlusOutlined />}
+                    onClick={() => setIsManualCheckInModalVisible(true)}
+                  >
+                    Отметить приход
+                  </Button>
+                  <Button
+                    type="default"
+                    icon={<EditOutlined />}
+                    onClick={() => setIsManualCheckOutModalVisible(true)}
+                  >
+                    Отметить уход
+                  </Button>
+                </>
+              )}
+            </Space>
+          </Col>
+        </Row>
 
         {/* Фильтры */}
-        <Card style={{ marginBottom: '24px' }}>
-          <Row gutter={[16, 16]} align="middle">
-            <Col xs={24} sm={12} md={8}>
-              <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500' }}>
-                Период:
-              </label>
-              <RangePicker
-                value={dateRange}
-                onChange={setDateRange}
-                style={{ width: '100%' }}
+        <Row gutter={16} style={{ marginBottom: 16 }}>
+          <Col span={6}>
+            <RangePicker
+              value={dateRange}
+              onChange={(dates) => {
+                if (dates) {
+                  setDateRange(dates);
+                  fetchFullStats(dates[0], dates[1]);
+                }
+              }}
+              format="YYYY-MM-DD"
+              style={{ width: '100%' }}
+              placeholder={['Начальная дата', 'Конечная дата']}
+            />
+          </Col>
+          <Col span={6}>
+            <DatePicker
+              value={selectedDate}
+              onChange={(date) => setSelectedDate(date || dayjs())}
+              format="YYYY-MM-DD"
+              style={{ width: '100%' }}
+              placeholder="Выберите дату"
+            />
+          </Col>
+          <Col span={6}>
+            <Select
+              value={selectedUser}
+              onChange={setSelectedUser}
+              placeholder="Выберите сотрудника"
+              style={{ width: '100%' }}
+              allowClear
+            >
+              {users.map(user => (
+                <Option key={user.id} value={user.id}>
+                  {user.lastName} {user.firstName}
+                </Option>
+              ))}
+            </Select>
+          </Col>
+          <Col span={6}>
+            <Button onClick={() => fetchFullStats(dateRange[0], dateRange[1])} loading={loading}>
+              Обновить
+            </Button>
+          </Col>
+        </Row>
+
+        {/* Статистика за день */}
+        {dayData && (
+          <Row gutter={16} style={{ marginBottom: 16 }}>
+            <Col span={6}>
+              <Statistic
+                title="Всего сотрудников"
+                value={dayData.employees.length}
+                prefix={<UserOutlined />}
               />
             </Col>
-            {isManager && (
-              <Col xs={24} sm={12} md={8}>
-                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500' }}>
-                  Сотрудник:
-                </label>
-                <Select
-                  placeholder="Все сотрудники"
-                  value={selectedUser}
-                  onChange={setSelectedUser}
-                  style={{ width: '100%' }}
-                  allowClear
-                >
-                  {Array.isArray(users) && users.map(user => (
-                    <Option key={user.id} value={user.id}>
-                      {user.firstName} {user.lastName}
-                    </Option>
-                  ))}
-                </Select>
-              </Col>
-            )}
-          </Row>
-        </Card>
-
-        {/* Статистика */}
-        <Row gutter={[16, 16]} style={{ marginBottom: '24px' }}>
-          <Col xs={24} sm={8}>
-            <Card>
+            <Col span={6}>
               <Statistic
-                title="Всего дней"
-                value={stats.totalDays || 0}
-                prefix={<CalendarOutlined />}
-              />
-            </Card>
-          </Col>
-          <Col xs={24} sm={8}>
-            <Card>
-              <Statistic
-                title="Присутствовал"
-                value={stats.presentDays || 0}
+                title="Присутствовали"
+                value={dayData.employees.filter(emp => emp.status === 'present').length}
                 prefix={<CheckCircleOutlined />}
                 valueStyle={{ color: '#3f8600' }}
               />
-            </Card>
-          </Col>
-          <Col xs={24} sm={8}>
-            <Card>
+            </Col>
+            <Col span={6}>
               <Statistic
-                title="Опозданий"
-                value={stats.lateDays || 0}
+                title="Опоздали"
+                value={dayData.employees.filter(emp => emp.status === 'late').length}
                 prefix={<ClockCircleOutlined />}
                 valueStyle={{ color: '#cf1322' }}
               />
-            </Card>
-          </Col>
-        </Row>
+            </Col>
+            <Col span={6}>
+              <Statistic
+                title="Отсутствовали"
+                value={dayData.employees.filter(emp => ['absent', 'sick', 'business_trip', 'vacation', 'no_reason'].includes(emp.status)).length}
+                prefix={<CloseCircleOutlined />}
+                valueStyle={{ color: '#cf1322' }}
+              />
+            </Col>
+          </Row>
+        )}
+
+        {/* Статистика по выбранному пользователю */}
+        {selectedUser && getUserStats() && (
+          <Card style={{ marginBottom: 16 }}>
+            <Title level={4}>Статистика по сотруднику</Title>
+            <Row gutter={16}>
+              <Col span={4}>
+                <Statistic
+                  title="Всего дней"
+                  value={getUserStats().totalDays}
+                  prefix={<CalendarOutlined />}
+                />
+              </Col>
+              <Col span={4}>
+                <Statistic
+                  title="Присутствовал"
+                  value={getUserStats().presentDays}
+                  prefix={<CheckCircleOutlined />}
+                  valueStyle={{ color: '#3f8600' }}
+                />
+              </Col>
+              <Col span={4}>
+                <Statistic
+                  title="Опоздал"
+                  value={getUserStats().lateDays}
+                  prefix={<ClockCircleOutlined />}
+                  valueStyle={{ color: '#faad14' }}
+                />
+              </Col>
+              <Col span={4}>
+                <Statistic
+                  title="Болел"
+                  value={getUserStats().sickDays}
+                  prefix={<CloseCircleOutlined />}
+                  valueStyle={{ color: '#722ed1' }}
+                />
+              </Col>
+              <Col span={4}>
+                <Statistic
+                  title="Командировка"
+                  value={getUserStats().businessTripDays}
+                  prefix={<UserOutlined />}
+                  valueStyle={{ color: '#1890ff' }}
+                />
+              </Col>
+              <Col span={4}>
+                <Statistic
+                  title="Отпуск"
+                  value={getUserStats().vacationDays}
+                  prefix={<CalendarOutlined />}
+                  valueStyle={{ color: '#13c2c2' }}
+                />
+              </Col>
+            </Row>
+          </Card>
+        )}
 
         {/* Таблица посещений */}
         <Table
           columns={columns}
-          dataSource={Array.isArray(attendanceData) ? attendanceData : []}
+          dataSource={dayData?.employees || []}
+          rowKey={(record) => `${record.userId}-${dayData?.date}`}
           loading={loading}
-          rowKey="id"
           pagination={{
             pageSize: 20,
             showSizeChanger: true,
             showQuickJumper: true,
-            showTotal: (total, range) => 
-              `${range[0]}-${range[1]} из ${total} записей`,
+            showTotal: (total, range) => `${range[0]}-${range[1]} из ${total} записей`
           }}
+          scroll={{ x: 800 }}
         />
       </Card>
 
-      {/* Модальное окно для ручной отметки присутствия */}
+      {/* Модальное окно для отметки прихода */}
       <Modal
-        title="Отметить присутствие"
-        open={manualModalVisible}
+        title="Отметить приход"
+        open={isManualCheckInModalVisible}
         onCancel={() => {
-          setManualModalVisible(false);
-          form.resetFields();
+          setIsManualCheckInModalVisible(false);
+          manualCheckInForm.resetFields();
         }}
         footer={null}
-        width={600}
       >
         <Form
-          form={form}
+          form={manualCheckInForm}
           layout="vertical"
           onFinish={handleManualCheckIn}
         >
@@ -501,77 +616,73 @@ const Attendance = () => {
             rules={[{ required: true, message: 'Выберите сотрудника' }]}
           >
             <Select placeholder="Выберите сотрудника">
-              {Array.isArray(users) && users.map(user => (
+              {console.log('Modal 1 (check-in) users:', users)}
+              {users.map(user => (
                 <Option key={user.id} value={user.id}>
-                  {user.firstName} {user.lastName} ({user.email})
+                  {user.lastName} {user.firstName}
                 </Option>
               ))}
             </Select>
           </Form.Item>
-
+          
           <Form.Item
             name="workplaceId"
             label="Место работы"
             rules={[{ required: true, message: 'Выберите место работы' }]}
           >
             <Select placeholder="Выберите место работы">
-              {Array.isArray(workplaces) && workplaces.filter(wp => wp.isActive).map(workplace => (
+              {workplaces.map(workplace => (
                 <Option key={workplace.id} value={workplace.id}>
-                  {workplace.name} - {workplace.address}
+                  {workplace.name}
                 </Option>
               ))}
             </Select>
           </Form.Item>
-
+          
           <Form.Item
             name="checkInTime"
             label="Время прихода"
             rules={[{ required: true, message: 'Выберите время прихода' }]}
+            initialValue={dayjs()}
           >
-            <DatePicker 
-              showTime 
-              format="YYYY-MM-DD HH:mm"
-              placeholder="Выберите дату и время"
+            <TimePicker
+              format="HH:mm"
               style={{ width: '100%' }}
             />
           </Form.Item>
-
+          
           <Form.Item
             name="notes"
-            label="Комментарий"
+            label="Примечания"
           >
-            <Input.TextArea 
-              placeholder="Дополнительная информация (необязательно)"
-              rows={3}
-            />
+            <Input.TextArea rows={3} placeholder="Дополнительная информация" />
           </Form.Item>
-
-          <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
+          
+          <Form.Item>
             <Space>
-              <Button onClick={() => setManualModalVisible(false)}>
-                Отмена
-              </Button>
               <Button type="primary" htmlType="submit">
-                Отметить присутствие
+                Отметить приход
+              </Button>
+              <Button onClick={() => setIsManualCheckInModalVisible(false)}>
+                Отмена
               </Button>
             </Space>
           </Form.Item>
         </Form>
       </Modal>
 
-      {/* Модальное окно для ручной отметки ухода */}
+      {/* Модальное окно для отметки ухода */}
       <Modal
         title="Отметить уход"
-        open={checkOutModalVisible}
+        open={isManualCheckOutModalVisible}
         onCancel={() => {
-          setCheckOutModalVisible(false);
-          form.resetFields();
+          setIsManualCheckOutModalVisible(false);
+          manualCheckOutForm.resetFields();
         }}
         footer={null}
-        width={600}
       >
         <Form
-          form={form}
+          form={manualCheckOutForm}
           layout="vertical"
           onFinish={handleManualCheckOut}
         >
@@ -581,44 +692,103 @@ const Attendance = () => {
             rules={[{ required: true, message: 'Выберите сотрудника' }]}
           >
             <Select placeholder="Выберите сотрудника">
-              {Array.isArray(users) && users.map(user => (
+              {users.map(user => (
                 <Option key={user.id} value={user.id}>
-                  {user.firstName} {user.lastName} ({user.email})
+                  {user.lastName} {user.firstName}
                 </Option>
               ))}
             </Select>
           </Form.Item>
-
+          
+          <Form.Item
+            name="workplaceId"
+            label="Место работы"
+            rules={[{ required: true, message: 'Выберите место работы' }]}
+          >
+            <Select placeholder="Выберите место работы">
+              {workplaces.map(workplace => (
+                <Option key={workplace.id} value={workplace.id}>
+                  {workplace.name}
+                </Option>
+              ))}
+            </Select>
+          </Form.Item>
+          
           <Form.Item
             name="checkOutTime"
             label="Время ухода"
             rules={[{ required: true, message: 'Выберите время ухода' }]}
+            initialValue={dayjs()}
           >
-            <DatePicker 
-              showTime 
-              format="YYYY-MM-DD HH:mm"
-              placeholder="Выберите дату и время"
+            <TimePicker
+              format="HH:mm"
               style={{ width: '100%' }}
             />
           </Form.Item>
-
+          
           <Form.Item
             name="notes"
-            label="Комментарий"
+            label="Примечания"
           >
-            <Input.TextArea 
-              placeholder="Дополнительная информация (необязательно)"
-              rows={3}
-            />
+            <Input.TextArea rows={3} placeholder="Дополнительная информация" />
           </Form.Item>
-
-          <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
+          
+          <Form.Item>
             <Space>
-              <Button onClick={() => setCheckOutModalVisible(false)}>
-                Отмена
-              </Button>
               <Button type="primary" htmlType="submit">
                 Отметить уход
+              </Button>
+              <Button onClick={() => setIsManualCheckOutModalVisible(false)}>
+                Отмена
+              </Button>
+            </Space>
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* Модальное окно для указания причины отсутствия */}
+      <Modal
+        title="Указать причину отсутствия"
+        open={isAbsenceReasonModalVisible}
+        onCancel={() => {
+          setIsAbsenceReasonModalVisible(false);
+          absenceReasonForm.resetFields();
+          setSelectedAbsenceRecord(null);
+        }}
+        footer={null}
+      >
+        <Form
+          form={absenceReasonForm}
+          layout="vertical"
+          onFinish={handleUpdateAbsenceReason}
+        >
+          <Form.Item
+            name="reason"
+            label="Причина отсутствия"
+            rules={[{ required: true, message: 'Выберите причину отсутствия' }]}
+          >
+            <Select placeholder="Выберите причину отсутствия">
+              <Option value="sick">Болезнь</Option>
+              <Option value="business_trip">Командировка</Option>
+              <Option value="vacation">Отпуск</Option>
+              <Option value="no_reason">Без причины</Option>
+            </Select>
+          </Form.Item>
+          
+          <Form.Item
+            name="notes"
+            label="Примечания"
+          >
+            <Input.TextArea rows={3} placeholder="Дополнительная информация" />
+          </Form.Item>
+          
+          <Form.Item>
+            <Space>
+              <Button type="primary" htmlType="submit">
+                Сохранить
+              </Button>
+              <Button onClick={() => setIsAbsenceReasonModalVisible(false)}>
+                Отмена
               </Button>
             </Space>
           </Form.Item>
