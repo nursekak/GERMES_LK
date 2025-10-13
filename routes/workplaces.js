@@ -3,6 +3,7 @@ const { Workplace } = require('../models');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { validateWorkplace } = require('../middleware/validation');
 const { v4: uuidv4 } = require('uuid');
+const { Op } = require('sequelize');
 
 const router = express.Router();
 

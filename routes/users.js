@@ -2,6 +2,7 @@ const express = require('express');
 const { User } = require('../models');
 const { authenticateToken, requireRole, requireOwnershipOrManager } = require('../middleware/auth');
 const { validateUserRegistration } = require('../middleware/validation');
+const { Op } = require('sequelize');
 
 const router = express.Router();
 

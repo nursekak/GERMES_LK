@@ -66,6 +66,43 @@ const validateWorkplace = [
   handleValidationErrors
 ];
 
+// Валидация для ручной отметки присутствия
+const validateManualCheckIn = [
+  body('userId')
+    .isUUID()
+    .withMessage('Некорректный ID пользователя'),
+  body('workplaceId')
+    .isUUID()
+    .withMessage('Некорректный ID места работы'),
+  body('checkInTime')
+    .optional()
+    .isISO8601()
+    .withMessage('Некорректный формат времени'),
+  body('notes')
+    .optional()
+    .trim()
+    .isLength({ max: 500 })
+    .withMessage('Комментарий не должен превышать 500 символов'),
+  handleValidationErrors
+];
+
+// Валидация для ручной отметки ухода
+const validateManualCheckOut = [
+  body('userId')
+    .isUUID()
+    .withMessage('Некорректный ID пользователя'),
+  body('checkOutTime')
+    .optional()
+    .isISO8601()
+    .withMessage('Некорректный формат времени'),
+  body('notes')
+    .optional()
+    .trim()
+    .isLength({ max: 500 })
+    .withMessage('Комментарий не должен превышать 500 символов'),
+  handleValidationErrors
+];
+
 // Валидация для создания отчета
 const validateReport = [
   body('title')
@@ -99,5 +136,7 @@ module.exports = {
   validateLogin,
   validateWorkplace,
   validateReport,
-  validatePasswordUpdate
+  validatePasswordUpdate,
+  validateManualCheckIn,
+  validateManualCheckOut
 };

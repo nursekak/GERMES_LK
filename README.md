@@ -237,6 +237,8 @@ node scripts/backup.js schedule
 ### Посещения
 - `POST /api/attendance/check-in` - регистрация явки по QR-коду
 - `POST /api/attendance/check-out` - регистрация ухода
+- `POST /api/attendance/manual-check-in` - ручная отметка присутствия (только для руководителей)
+- `POST /api/attendance/manual-check-out` - ручная отметка ухода (только для руководителей)
 - `GET /api/attendance/my-stats` - личная статистика посещений
 - `GET /api/attendance/all-stats` - общая статистика (только для руководителей)
 - `GET /api/attendance/current` - текущая активная явка

@@ -2,6 +2,7 @@ const express = require('express');
 const QRCode = require('qrcode');
 const { Attendance, Workplace, User } = require('../models');
 const { authenticateToken, requireRole, requireOwnershipOrManager } = require('../middleware/auth');
+const { validateManualCheckIn, validateManualCheckOut } = require('../middleware/validation');
 const { Op } = require('sequelize');
 
 const router = express.Router();
@@ -162,13 +163,16 @@ router.get('/all-stats', authenticateToken, requireRole(['manager']), async (req
   try {
     const { startDate, endDate, workplaceId, userId } = req.query;
 
+    console.log('All-stats request params:', { startDate, endDate, workplaceId, userId });
+
     const whereClause = {};
     
-    if (startDate && endDate) {
-      whereClause.checkInTime = {
-        [Op.between]: [new Date(startDate), new Date(endDate)]
-      };
-    }
+    // Временно убираем фильтр по датам для тестирования
+    // if (startDate && endDate) {
+    //   whereClause.checkInTime = {
+    //     [Op.between]: [new Date(startDate), new Date(endDate)]
+    //   };
+    // }
     
     if (workplaceId) {
       whereClause.workplaceId = workplaceId;
@@ -178,6 +182,8 @@ router.get('/all-stats', authenticateToken, requireRole(['manager']), async (req
       whereClause.userId = userId;
     }
 
+    console.log('Where clause:', whereClause);
+
     const attendance = await Attendance.findAll({
       where: whereClause,
       include: [
@@ -186,6 +192,25 @@ router.get('/all-stats', authenticateToken, requireRole(['manager']), async (req
       ],
       order: [['checkInTime', 'DESC']]
     });
+
+    console.log('Found attendance records:', attendance.length);
+
+    // Если нет записей, проверим, есть ли вообще записи в базе
+    if (attendance.length === 0) {
+      const totalRecords = await Attendance.count();
+      console.log('Total attendance records in database:', totalRecords);
+      
+      // Попробуем найти записи без фильтров
+      const allRecords = await Attendance.findAll({
+        include: [
+          { model: User, as: 'user' },
+          { model: Workplace, as: 'workplace' }
+        ],
+        order: [['checkInTime', 'DESC']],
+        limit: 5
+      });
+      console.log('Sample records without filters:', allRecords.length);
+    }
 
     // Группировка по пользователям
     const userStats = {};
@@ -207,10 +232,22 @@ router.get('/all-stats', authenticateToken, requireRole(['manager']), async (req
       userStats[userId].records.push(record);
     });
 
-    res.json({
+    const result = {
       userStats: Object.values(userStats),
+      attendance: attendance, // Добавляем массив посещений для таблицы
       totalRecords: attendance.length
+    };
+    
+    console.log('API response structure:', {
+      userStatsCount: result.userStats.length,
+      attendanceCount: result.attendance.length,
+      totalRecords: result.totalRecords
     });
+    
+    console.log('First userStat:', result.userStats[0]);
+    console.log('First attendance record:', result.attendance[0]);
+    
+    res.json(result);
   } catch (error) {
     console.error('Ошибка получения общей статистики:', error);
     res.status(500).json({ message: 'Ошибка при получении общей статистики' });
@@ -244,6 +281,119 @@ router.get('/qr/:workplaceId', authenticateToken, requireRole(['manager']), asyn
   } catch (error) {
     console.error('Ошибка генерации QR кода:', error);
     res.status(500).json({ message: 'Ошибка при генерации QR кода' });
+  }
+});
+
+// Ручная отметка присутствия (только для руководителей)
+router.post('/manual-check-in', authenticateToken, requireRole(['manager']), validateManualCheckIn, async (req, res) => {
+  try {
+    const { userId, workplaceId, checkInTime, notes } = req.body;
+    const now = new Date();
+    const checkIn = checkInTime ? new Date(checkInTime) : now;
+
+    // Проверяем, что пользователь существует
+    const user = await User.findByPk(userId);
+    if (!user) {
+      return res.status(404).json({ message: 'Пользователь не найден' });
+    }
+
+    // Проверяем, что место работы существует
+    const workplace = await Workplace.findByPk(workplaceId);
+    if (!workplace) {
+      return res.status(404).json({ message: 'Место работы не найдено' });
+    }
+
+    // Проверяем, не зарегистрирована ли уже явка сегодня
+    const todayStart = new Date(checkIn.getFullYear(), checkIn.getMonth(), checkIn.getDate());
+    const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
+
+    const existingAttendance = await Attendance.findOne({
+      where: {
+        userId,
+        workplaceId,
+        checkInTime: {
+          [Op.between]: [todayStart, todayEnd]
+        }
+      }
+    });
+
+    if (existingAttendance) {
+      return res.status(400).json({ message: 'Явка на это место работы уже зарегистрирована сегодня' });
+    }
+
+    // Определяем статус (опоздание, если после 9:00)
+    const workStartTime = new Date(checkIn);
+    workStartTime.setHours(9, 0, 0, 0);
+    const status = checkIn > workStartTime ? 'late' : 'present';
+
+    // Создаем запись о явке
+    const attendance = await Attendance.create({
+      userId,
+      workplaceId,
+      checkInTime: checkIn,
+      status,
+      notes: notes || 'Отмечено администратором',
+      ipAddress: req.ip,
+      userAgent: req.get('User-Agent')
+    });
+
+    // Загружаем связанные данные для ответа
+    await attendance.reload({
+      include: [
+        { model: User, as: 'user', attributes: ['id', 'firstName', 'lastName', 'email'] },
+        { model: Workplace, as: 'workplace', attributes: ['id', 'name', 'address'] }
+      ]
+    });
+
+    res.status(201).json({
+      message: 'Присутствие отмечено администратором',
+      attendance: attendance.toJSON()
+    });
+  } catch (error) {
+    console.error('Ошибка ручной отметки присутствия:', error);
+    res.status(500).json({ message: 'Ошибка при отметке присутствия' });
+  }
+});
+
+// Ручная отметка ухода (только для руководителей)
+router.post('/manual-check-out', authenticateToken, requireRole(['manager']), validateManualCheckOut, async (req, res) => {
+  try {
+    const { userId, checkOutTime, notes } = req.body;
+    const now = new Date();
+    const checkOut = checkOutTime ? new Date(checkOutTime) : now;
+
+    // Находим активную явку пользователя
+    const attendance = await Attendance.findOne({
+      where: {
+        userId,
+        checkOutTime: null
+      },
+      include: [
+        { model: User, as: 'user', attributes: ['id', 'firstName', 'lastName'] },
+        { model: Workplace, as: 'workplace', attributes: ['id', 'name'] }
+      ],
+      order: [['checkInTime', 'DESC']]
+    });
+
+    if (!attendance) {
+      return res.status(404).json({ message: 'Активная явка не найдена' });
+    }
+
+    // Обновляем время ухода
+    await attendance.update({
+      checkOutTime: checkOut,
+      notes: attendance.notes ? 
+        `${attendance.notes}\nУход отмечен администратором: ${notes || ''}`.trim() :
+        `Уход отмечен администратором: ${notes || ''}`.trim()
+    });
+
+    res.json({
+      message: 'Уход отмечен администратором',
+      attendance: attendance.toJSON()
+    });
+  } catch (error) {
+    console.error('Ошибка ручной отметки ухода:', error);
+    res.status(500).json({ message: 'Ошибка при отметке ухода' });
   }
 });
 
