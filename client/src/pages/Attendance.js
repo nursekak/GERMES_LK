@@ -43,7 +43,6 @@ const Attendance = () => {
   const { user, isManager } = useAuth();
   const [fullStatsData, setFullStatsData] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [selectedDate, setSelectedDate] = useState(() => dayjs());
   const [dateRange, setDateRange] = useState([
     dayjs().subtract(7, 'day'),
     dayjs()
@@ -66,9 +65,14 @@ const Attendance = () => {
   // Загрузка данных
   useEffect(() => {
     fetchFullStats();
-    fetchUsers();
-    fetchWorkplaces();
-  }, []);
+    if (isManager) {
+      fetchUsers();
+      fetchWorkplaces();
+    } else {
+      // Для сотрудников устанавливаем себя как выбранного пользователя
+      setSelectedUser(user.id);
+    }
+  }, [isManager, user.id]);
 
   const fetchFullStats = async (startDate = null, endDate = null) => {
     try {
@@ -79,6 +83,11 @@ const Attendance = () => {
       if (startDate && endDate) {
         params.startDate = startDate.format('YYYY-MM-DD');
         params.endDate = endDate.format('YYYY-MM-DD');
+      }
+      
+      // Для сотрудников загружаем только их данные
+      if (!isManager) {
+        params.userId = user.id;
       }
       
       const response = await api.get('/attendance/full-stats-30-days', { params });
@@ -124,23 +133,17 @@ const Attendance = () => {
     }
   };
 
-  // Получение данных для выбранной даты
-  const getDayData = () => {
-    console.log('getDayData - fullStatsData:', fullStatsData);
-    console.log('getDayData - selectedDate:', selectedDate);
+  // Получение всех дней в диапазоне
+  const getAllDaysData = () => {
+    console.log('getAllDaysData - fullStatsData:', fullStatsData);
     
-    if (!fullStatsData || !selectedDate) {
-      console.log('getDayData - returning null (no data or date)');
-      return null;
+    if (!fullStatsData || !fullStatsData.days) {
+      console.log('getAllDaysData - returning null (no data)');
+      return [];
     }
     
-    const dateStr = selectedDate.format('YYYY-MM-DD');
-    console.log('getDayData - looking for date:', dateStr);
-    console.log('getDayData - available days:', fullStatsData.days?.map(d => d.date));
-    
-    const dayData = fullStatsData.days.find(day => day.date === dateStr);
-    console.log('getDayData - found dayData:', dayData);
-    return dayData;
+    console.log('getAllDaysData - available days:', fullStatsData.days?.map(d => d.date));
+    return fullStatsData.days;
   };
 
   // Получение данных для выбранного пользователя за период
@@ -200,12 +203,22 @@ const Attendance = () => {
     return userStats;
   };
 
-  // Получение данных для выбранного пользователя
-  const getUserData = () => {
-    const dayData = getDayData();
-    if (!dayData || !selectedUser) return null;
+  // Получение данных для выбранного пользователя за весь период
+  const getUserDataForPeriod = () => {
+    if (!fullStatsData || !selectedUser) return [];
     
-    return dayData.employees.find(emp => emp.userId === selectedUser);
+    const userData = [];
+    fullStatsData.days.forEach(day => {
+      const userAttendance = day.employees.find(emp => emp.userId === selectedUser);
+      if (userAttendance) {
+        userData.push({
+          date: day.date,
+          ...userAttendance
+        });
+      }
+    });
+    
+    return userData;
   };
 
   // Обработчики форм
@@ -251,7 +264,7 @@ const Attendance = () => {
     try {
       await api.put('/attendance/update-absence-reason', {
         userId: selectedAbsenceRecord.userId,
-        date: selectedDate.format('YYYY-MM-DD'),
+        date: dayjs().format('YYYY-MM-DD'),
         reason: values.reason,
         notes: values.notes
       });
@@ -391,12 +404,12 @@ const Attendance = () => {
     }
   ];
 
-  const dayData = getDayData();
-  const userData = getUserData();
+  const allDaysData = getAllDaysData();
+  const userDataForPeriod = getUserDataForPeriod();
   
   console.log('Render - fullStatsData:', fullStatsData);
-  console.log('Render - selectedDate:', selectedDate);
-  console.log('Render - dayData:', dayData);
+  console.log('Render - allDaysData:', allDaysData);
+  console.log('Render - userDataForPeriod:', userDataForPeriod);
   console.log('Render - users:', users);
   console.log('Render - workplaces:', workplaces);
 
@@ -455,30 +468,23 @@ const Attendance = () => {
               placeholder={['Начальная дата', 'Конечная дата']}
             />
           </Col>
-          <Col span={6}>
-            <DatePicker
-              value={selectedDate}
-              onChange={(date) => setSelectedDate(date || dayjs())}
-              format="YYYY-MM-DD"
-              style={{ width: '100%' }}
-              placeholder="Выберите дату"
-            />
-          </Col>
-          <Col span={6}>
-            <Select
-              value={selectedUser}
-              onChange={setSelectedUser}
-              placeholder="Выберите сотрудника"
-              style={{ width: '100%' }}
-              allowClear
-            >
-              {users.map(user => (
-                <Option key={user.id} value={user.id}>
-                  {user.lastName} {user.firstName}
-                </Option>
-              ))}
-            </Select>
-          </Col>
+          {isManager && (
+            <Col span={6}>
+              <Select
+                value={selectedUser}
+                onChange={setSelectedUser}
+                placeholder="Выберите сотрудника"
+                style={{ width: '100%' }}
+                allowClear
+              >
+                {users.map(user => (
+                  <Option key={user.id} value={user.id}>
+                    {user.lastName} {user.firstName}
+                  </Option>
+                ))}
+              </Select>
+            </Col>
+          )}
           <Col span={6}>
             <Button onClick={() => fetchFullStats(dateRange[0], dateRange[1])} loading={loading}>
               Обновить
@@ -486,36 +492,37 @@ const Attendance = () => {
           </Col>
         </Row>
 
-        {/* Статистика за день */}
-        {dayData && (
+        {/* Статистика за период */}
+        {getAllDaysData().length > 0 && (
           <Row gutter={16} style={{ marginBottom: 16 }}>
             <Col span={6}>
               <Statistic
-                title="Всего сотрудников"
-                value={dayData.employees.length}
+                title="Дней в периоде"
+                value={getAllDaysData().length}
+                prefix={<CalendarOutlined />}
+              />
+            </Col>
+            <Col span={6}>
+              <Statistic
+                title="Всего записей"
+                value={getAllDaysData().reduce((total, day) => total + day.employees.length, 0)}
                 prefix={<UserOutlined />}
               />
             </Col>
             <Col span={6}>
               <Statistic
                 title="Присутствовали"
-                value={dayData.employees.filter(emp => emp.status === 'present').length}
+                value={getAllDaysData().reduce((total, day) => 
+                  total + day.employees.filter(emp => emp.status === 'present').length, 0)}
                 prefix={<CheckCircleOutlined />}
                 valueStyle={{ color: '#3f8600' }}
               />
             </Col>
             <Col span={6}>
               <Statistic
-                title="Опоздали"
-                value={dayData.employees.filter(emp => emp.status === 'late').length}
-                prefix={<ClockCircleOutlined />}
-                valueStyle={{ color: '#cf1322' }}
-              />
-            </Col>
-            <Col span={6}>
-              <Statistic
                 title="Отсутствовали"
-                value={dayData.employees.filter(emp => ['absent', 'sick', 'business_trip', 'vacation', 'no_reason'].includes(emp.status)).length}
+                value={getAllDaysData().reduce((total, day) => 
+                  total + day.employees.filter(emp => ['absent', 'sick', 'business_trip', 'vacation', 'no_reason'].includes(emp.status)).length, 0)}
                 prefix={<CloseCircleOutlined />}
                 valueStyle={{ color: '#cf1322' }}
               />
@@ -579,20 +586,28 @@ const Attendance = () => {
           </Card>
         )}
 
-        {/* Таблица посещений */}
-        <Table
-          columns={columns}
-          dataSource={dayData?.employees || []}
-          rowKey={(record) => `${record.userId}-${dayData?.date}`}
-          loading={loading}
-          pagination={{
-            pageSize: 20,
-            showSizeChanger: true,
-            showQuickJumper: true,
-            showTotal: (total, range) => `${range[0]}-${range[1]} из ${total} записей`
-          }}
-          scroll={{ x: 800 }}
-        />
+        {/* Таблица посещений по дням */}
+        {getAllDaysData().map((dayData, index) => (
+          <Card key={dayData.date} style={{ marginBottom: 16 }}>
+            <Title level={4} style={{ marginBottom: 16 }}>
+              {dayjs(dayData.date).format('DD.MM.YYYY (dddd)')}
+            </Title>
+            <Table
+              columns={columns}
+              dataSource={dayData.employees || []}
+              rowKey={(record) => `${record.userId}-${dayData.date}`}
+              loading={loading}
+              pagination={{
+                pageSize: 10,
+                showSizeChanger: true,
+                showQuickJumper: true,
+                showTotal: (total, range) => `${range[0]}-${range[1]} из ${total} записей`
+              }}
+              scroll={{ x: 800 }}
+              size="small"
+            />
+          </Card>
+        ))}
       </Card>
 
       {/* Модальное окно для отметки прихода */}

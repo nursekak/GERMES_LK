@@ -428,7 +428,7 @@ router.get('/current', authenticateToken, async (req, res) => {
 });
 
 // Получение полной статистики за период для всех сотрудников
-router.get('/full-stats-30-days', authenticateToken, requireRole(['manager']), async (req, res) => {
+router.get('/full-stats-30-days', authenticateToken, async (req, res) => {
   try {
     let endDate = new Date();
     let startDate = new Date();
@@ -437,25 +437,51 @@ router.get('/full-stats-30-days', authenticateToken, requireRole(['manager']), a
     if (req.query.startDate && req.query.endDate) {
       startDate = new Date(req.query.startDate);
       endDate = new Date(req.query.endDate);
+      
+      // Устанавливаем время для корректного поиска в UTC
+      startDate.setUTCHours(0, 0, 0, 0); // Начало дня в UTC
+      endDate.setUTCHours(23, 59, 59, 999); // Конец дня в UTC
     } else {
       // По умолчанию - последние 30 дней
       startDate.setDate(startDate.getDate() - 30);
+      startDate.setUTCHours(0, 0, 0, 0);
+      endDate.setUTCHours(23, 59, 59, 999);
     }
 
-    // Получаем всех сотрудников
+    console.log('Date range:', { startDate, endDate });
+    console.log('Date range formatted:', { 
+      startDate: startDate.toISOString(), 
+      endDate: endDate.toISOString() 
+    });
+
+    // Определяем, для каких пользователей получать данные
+    let userFilter = { role: 'employee' };
+    let attendanceFilter = {
+      checkInTime: {
+        [Op.gte]: startDate,
+        [Op.lte]: endDate
+      }
+    };
+
+    // Если передан userId (для сотрудников), фильтруем только по этому пользователю
+    if (req.query.userId && req.user.role !== 'manager') {
+      // Проверяем, что сотрудник запрашивает только свои данные
+      if (req.query.userId !== req.user.id) {
+        return res.status(403).json({ message: 'Нет прав для просмотра данных других пользователей' });
+      }
+      userFilter.id = req.query.userId;
+      attendanceFilter.userId = req.query.userId;
+    }
+
+    // Получаем сотрудников
     const users = await User.findAll({
-      where: { role: 'employee' },
+      where: userFilter,
       order: [['lastName', 'ASC'], ['firstName', 'ASC']]
     });
 
     // Получаем все записи посещений за период
     const attendanceRecords = await Attendance.findAll({
-      where: {
-        checkInTime: {
-          [Op.gte]: startDate,
-          [Op.lte]: endDate
-        }
-      },
+      where: attendanceFilter,
       include: [
         { model: User, as: 'user' },
         { model: Workplace, as: 'workplace' }
