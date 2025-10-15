@@ -10,10 +10,32 @@ const sequelize = new Sequelize(
     dialect: 'postgres',
     logging: process.env.NODE_ENV === 'development' ? console.log : false,
     pool: {
-      max: 5,
-      min: 0,
-      acquire: 30000,
-      idle: 10000
+      max: 10,        // Увеличиваем максимальное количество соединений
+      min: 2,         // Минимальное количество соединений
+      acquire: 60000, // Увеличиваем время ожидания получения соединения
+      idle: 30000,    // Увеличиваем время простоя перед закрытием соединения
+      evict: 1000,    // Интервал проверки неиспользуемых соединений
+      handleDisconnects: true // Автоматическое переподключение
+    },
+    retry: {
+      match: [
+        /ETIMEDOUT/,
+        /EHOSTUNREACH/,
+        /ECONNRESET/,
+        /ECONNREFUSED/,
+        /ETIMEDOUT/,
+        /ESOCKETTIMEDOUT/,
+        /EHOSTUNREACH/,
+        /EPIPE/,
+        /EAI_AGAIN/,
+        /SequelizeConnectionError/,
+        /SequelizeConnectionRefusedError/,
+        /SequelizeHostNotFoundError/,
+        /SequelizeHostNotReachableError/,
+        /SequelizeInvalidConnectionError/,
+        /SequelizeConnectionTimedOutError/
+      ],
+      max: 3 // Максимум 3 попытки переподключения
     },
     define: {
       timestamps: true,
@@ -22,5 +44,7 @@ const sequelize = new Sequelize(
     }
   }
 );
+
+// Обработчики событий подключения будут добавлены в server.js
 
 module.exports = sequelize;

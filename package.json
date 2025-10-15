@@ -19,7 +19,8 @@
     "backup:create": "node scripts/backup.js create",
     "backup:cleanup": "node scripts/backup.js cleanup",
     "backup:info": "node scripts/backup.js info",
-    "backup:schedule": "node scripts/backup.js schedule"
+    "backup:schedule": "node scripts/backup.js schedule",
+    "monitor": "node scripts/monitor-server.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

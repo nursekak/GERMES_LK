@@ -19,6 +19,36 @@ const backupRoutes = require('./routes/backup');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Обработчики для необработанных исключений
+process.on('uncaughtException', (err) => {
+  console.error('Необработанное исключение:', err);
+  console.error('Стек вызовов:', err.stack);
+  // Не завершаем процесс сразу, даем время на логирование
+  setTimeout(() => {
+    process.exit(1);
+  }, 1000);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Необработанное отклонение Promise:', reason);
+  console.error('Promise:', promise);
+  // Не завершаем процесс сразу
+  setTimeout(() => {
+    process.exit(1);
+  }, 1000);
+});
+
+// Обработчик для graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('Получен SIGTERM, завершение работы...');
+  process.exit(0);
+});
+
+process.on('SIGINT', () => {
+  console.log('Получен SIGINT, завершение работы...');
+  process.exit(0);
+});
+
 // Настройка лимитов запросов
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 минут
@@ -40,6 +70,27 @@ app.use(helmet({
 
 app.use(compression());
 app.use(limiter);
+
+// Middleware для логирования запросов
+app.use((req, res, next) => {
+  const start = Date.now();
+  const originalSend = res.send;
+  
+  res.send = function(data) {
+    const duration = Date.now() - start;
+    const logMessage = `${new Date().toISOString()} ${req.method} ${req.url} ${res.statusCode} ${duration}ms`;
+    
+    if (res.statusCode >= 400) {
+      console.error(`❌ ${logMessage}`);
+    } else {
+      console.log(`✅ ${logMessage}`);
+    }
+    
+    return originalSend.call(this, data);
+  };
+  
+  next();
+});
 app.use(cors({
   origin: process.env.NODE_ENV === 'production' ? false : ['http://localhost:3000', 'http://localhost:3001'],
   credentials: true,
@@ -64,6 +115,28 @@ app.use(session({
     maxAge: 24 * 60 * 60 * 1000 // 24 часа
   }
 }));
+
+// Health check endpoint
+app.get('/health', async (req, res) => {
+  try {
+    // Проверяем подключение к базе данных
+    await db.authenticate();
+    res.json({ 
+      status: 'OK', 
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      memory: process.memoryUsage(),
+      database: 'connected'
+    });
+  } catch (error) {
+    res.status(503).json({ 
+      status: 'ERROR', 
+      timestamp: new Date().toISOString(),
+      database: 'disconnected',
+      error: error.message
+    });
+  }
+});
 
 // Маршруты API
 app.use('/api/auth', authRoutes);
@@ -97,19 +170,41 @@ app.use('*', (req, res) => {
 });
 
 // Инициализация базы данных и запуск сервера
-db.authenticate()
-  .then(() => {
-    console.log('Подключение к базе данных установлено успешно.');
-    return db.sync({ force: false });
-  })
-  .then(() => {
-    app.listen(PORT, () => {
-      console.log(`Сервер запущен на порту ${PORT}`);
+const startServer = async () => {
+  try {
+    console.log('🔄 Попытка подключения к базе данных...');
+    await db.authenticate();
+    console.log('✅ Подключение к базе данных установлено успешно.');
+    
+    console.log('🔄 Синхронизация моделей с базой данных...');
+    await db.sync({ force: false });
+    console.log('✅ Модели синхронизированы с базой данных.');
+    
+    const server = app.listen(PORT, () => {
+      console.log(`🚀 Сервер запущен на порту ${PORT}`);
+      console.log(`📊 Health check доступен по адресу: http://localhost:${PORT}/health`);
+      console.log(`🌍 Окружение: ${process.env.NODE_ENV || 'development'}`);
     });
-  })
-  .catch(err => {
-    console.error('Ошибка подключения к базе данных:', err);
+
+    // Обработчик ошибок сервера
+    server.on('error', (err) => {
+      console.error('❌ Ошибка сервера:', err);
+      if (err.code === 'EADDRINUSE') {
+        console.error(`❌ Порт ${PORT} уже используется. Попробуйте другой порт.`);
+      }
+    });
+
+  } catch (err) {
+    console.error('❌ Критическая ошибка при запуске сервера:', err);
+    console.error('📋 Детали ошибки:', {
+      message: err.message,
+      code: err.code,
+      stack: err.stack
+    });
     process.exit(1);
-  });
+  }
+};
+
+startServer();
 
 module.exports = app;
