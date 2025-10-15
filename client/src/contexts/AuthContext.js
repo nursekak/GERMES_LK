@@ -28,13 +28,23 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const checkAuth = async () => {
       const token = localStorage.getItem('token');
+      console.log('Checking auth with token:', token ? 'exists' : 'not found');
+      
       if (token) {
         try {
           api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+          console.log('Making request to /auth/me');
           const response = await api.get('/auth/me');
+          console.log('Auth response:', response.data);
           setUser(response.data.user);
         } catch (error) {
           console.error('Ошибка проверки аутентификации:', error);
+          console.error('Error details:', {
+            status: error.response?.status,
+            statusText: error.response?.statusText,
+            data: error.response?.data,
+            url: error.config?.url
+          });
           localStorage.removeItem('token');
           delete api.defaults.headers.common['Authorization'];
         }
@@ -47,7 +57,9 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (email, password) => {
     try {
+      console.log('Attempting login for:', email);
       const response = await api.post('/auth/login', { email, password });
+      console.log('Login response:', response.data);
       const { token, user } = response.data;
       
       localStorage.setItem('token', token);
@@ -57,6 +69,13 @@ export const AuthProvider = ({ children }) => {
       toast.success('Успешный вход в систему');
       return { success: true };
     } catch (error) {
+      console.error('Login error:', error);
+      console.error('Error details:', {
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        data: error.response?.data,
+        url: error.config?.url
+      });
       const message = error.response?.data?.message || 'Ошибка входа в систему';
       toast.error(message);
       return { success: false, error: message };
@@ -65,7 +84,9 @@ export const AuthProvider = ({ children }) => {
 
   const register = async (userData) => {
     try {
+      console.log('Attempting registration for:', userData.email);
       const response = await api.post('/auth/register', userData);
+      console.log('Registration response:', response.data);
       const { token, user } = response.data;
       
       localStorage.setItem('token', token);
@@ -75,6 +96,13 @@ export const AuthProvider = ({ children }) => {
       toast.success('Регистрация успешна');
       return { success: true };
     } catch (error) {
+      console.error('Registration error:', error);
+      console.error('Error details:', {
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        data: error.response?.data,
+        url: error.config?.url
+      });
       const message = error.response?.data?.message || 'Ошибка регистрации';
       toast.error(message);
       return { success: false, error: message };

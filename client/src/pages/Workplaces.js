@@ -90,7 +90,7 @@ const Workplaces = () => {
   // Генерация нового QR кода
   const handleRegenerateQR = async (workplaceId) => {
     try {
-      const response = await api.post(`/workplaces/${workplaceId}/regenerate-qr`);
+      await api.post(`/workplaces/${workplaceId}/regenerate-qr`);
       message.success('QR код обновлен');
       fetchWorkplaces();
     } catch (error) {

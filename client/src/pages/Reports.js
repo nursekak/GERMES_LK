@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Card, 
   Table, 
@@ -7,7 +7,6 @@ import {
   Form, 
   Input, 
   DatePicker, 
-  Select, 
   message, 
   Space, 
   Typography,
@@ -34,10 +33,10 @@ import dayjs from 'dayjs';
 
 const { Title } = Typography;
 const { TextArea } = Input;
-const { Option } = Select;
+// const { Option } = Select;
 
 const Reports = () => {
-  const { user, isManager } = useAuth();
+  const { isManager } = useAuth();
   const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
@@ -50,7 +49,7 @@ const Reports = () => {
   const [form] = Form.useForm();
 
   // Загрузка отчетов
-  const fetchReports = async () => {
+  const fetchReports = useCallback(async () => {
     setLoading(true);
     try {
       const response = isManager 
@@ -62,11 +61,11 @@ const Reports = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [isManager]);
 
   useEffect(() => {
     fetchReports();
-  }, []);
+  }, [fetchReports]);
 
   // Создание/обновление отчета
   const handleSubmit = async (values) => {

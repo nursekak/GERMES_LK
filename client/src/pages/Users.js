@@ -19,7 +19,6 @@ import {
   PlusOutlined, 
   EditOutlined, 
   DeleteOutlined, 
-  UserOutlined,
   TeamOutlined 
 } from '@ant-design/icons';
 import { useAuth } from '../contexts/AuthContext';

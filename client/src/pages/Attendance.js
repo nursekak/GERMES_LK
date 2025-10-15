@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useDebounce } from '../hooks/useDebounce';
 import { 
   Card, 
   Table, 
@@ -12,13 +13,10 @@ import {
   Row,
   Col,
   message,
-  Tooltip,
   Modal,
   Form,
   Input,
-  TimePicker,
-  Drawer,
-  Badge
+  TimePicker
 } from 'antd';
 import { 
   ClockCircleOutlined, 
@@ -28,8 +26,7 @@ import {
   CalendarOutlined,
   DownloadOutlined,
   PlusOutlined,
-  EditOutlined,
-  EyeOutlined
+  EditOutlined
 } from '@ant-design/icons';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../utils/api';
@@ -47,6 +44,9 @@ const Attendance = () => {
     dayjs().subtract(7, 'day'),
     dayjs()
   ]);
+  
+  // Дебаунсинг для dateRange
+  const debouncedDateRange = useDebounce(dateRange, 500);
   const [selectedUser, setSelectedUser] = useState(null);
   const [users, setUsers] = useState([]);
   const [workplaces, setWorkplaces] = useState([]);
@@ -62,19 +62,7 @@ const Attendance = () => {
   const [manualCheckOutForm] = Form.useForm();
   const [absenceReasonForm] = Form.useForm();
 
-  // Загрузка данных
-  useEffect(() => {
-    fetchFullStats();
-    if (isManager) {
-      fetchUsers();
-      fetchWorkplaces();
-    } else {
-      // Для сотрудников устанавливаем себя как выбранного пользователя
-      setSelectedUser(user.id);
-    }
-  }, [isManager, user.id]);
-
-  const fetchFullStats = async (startDate = null, endDate = null) => {
+  const fetchFullStats = useCallback(async (startDate = null, endDate = null) => {
     try {
       setLoading(true);
       console.log('Fetching full stats...');
@@ -101,7 +89,26 @@ const Attendance = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [isManager, user.id]);
+
+  // Загрузка данных
+  useEffect(() => {
+    fetchFullStats();
+    if (isManager) {
+      fetchUsers();
+      fetchWorkplaces();
+    } else {
+      // Для сотрудников устанавливаем себя как выбранного пользователя
+      setSelectedUser(user.id);
+    }
+  }, [isManager, user.id]);
+
+  // Обновление данных при изменении дебаунсированного dateRange
+  useEffect(() => {
+    if (debouncedDateRange && debouncedDateRange[0] && debouncedDateRange[1]) {
+      fetchFullStats(debouncedDateRange[0], debouncedDateRange[1]);
+    }
+  }, [debouncedDateRange]);
 
   const fetchUsers = async () => {
     try {
@@ -195,6 +202,9 @@ const Attendance = () => {
             break;
           case 'no_reason':
             userStats.noReasonDays++;
+            break;
+          default:
+            // Обработка неизвестного статуса
             break;
         }
       }

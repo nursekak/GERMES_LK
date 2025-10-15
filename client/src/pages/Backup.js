@@ -3,14 +3,12 @@ import {
   Card, 
   Table, 
   Button, 
-  Modal, 
   message, 
   Space, 
   Typography,
   Tag,
   Tooltip,
   Popconfirm,
-  Progress,
   Alert,
   Row,
   Col,
@@ -71,7 +69,7 @@ const Backup = () => {
   const handleCreateBackup = async () => {
     setCreating(true);
     try {
-      const response = await api.post('/backup/create');
+      await api.post('/backup/create');
       message.success('Резервная копия создана');
       fetchBackups();
       fetchStats();

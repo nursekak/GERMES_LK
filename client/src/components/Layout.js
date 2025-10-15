@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+// import ConnectionStatus from './ConnectionStatus';
 
 const Layout = () => {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed] = useState(false);
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
   const { user, logout, isManager } = useAuth();
   const navigate = useNavigate();
@@ -245,6 +246,7 @@ const Layout = () => {
           boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
           minHeight: 'calc(100vh - 112px)',
         }}>
+          {/* <ConnectionStatus /> */}
           <Outlet />
         </main>
       </div>

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { Card, Form, Input, Button, Tabs, message, Space, Divider } from 'antd';
+import { Card, Form, Input, Button, Tabs, message } from 'antd';
 import { UserOutlined, LockOutlined, SaveOutlined } from '@ant-design/icons';
 
 const { TabPane } = Tabs;
